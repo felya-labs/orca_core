@@ -4,10 +4,11 @@
 from __future__ import annotations
 
 import argparse
+import ast
 import hashlib
 import json
+import re
 import subprocess
-import tomllib
 from pathlib import Path
 from typing import Any
 
@@ -72,6 +73,23 @@ def _tracked_feetech_files() -> set[str]:
         text=True,
     )
     return set(completed.stdout.splitlines())
+
+
+def _build_requirements() -> list[str]:
+    text = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    section = re.search(r"(?ms)^\[build-system\]\s*$\n(.*?)(?=^\[|\Z)", text)
+    if section is None:
+        raise LedgerError("pyproject build-system section is required")
+    match = re.search(r"(?m)^requires\s*=\s*(\[[^\n]*\])\s*$", section.group(1))
+    if match is None:
+        raise LedgerError("build-system requirements must use a single-line string array")
+    try:
+        value = ast.literal_eval(match.group(1))
+    except (SyntaxError, ValueError) as error:
+        raise LedgerError("build-system requirements are invalid") from error
+    if not isinstance(value, list) or not value or any(not isinstance(item, str) for item in value):
+        raise LedgerError("build-system requirements must be a non-empty string array")
+    return value
 
 
 def load_json(path: Path) -> dict[str, Any]:
@@ -183,8 +201,7 @@ def validate_ledger(ledger: dict[str, Any], sbom: dict[str, Any]) -> None:
         raise LedgerError("vendored Feetech inventory must exactly cover tracked Python sources")
 
     build = _exact_keys(ledger["buildToolchain"], {"directRequirements", "closureStatus", "conclusion"}, "build toolchain")
-    pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
-    if build != {"directRequirements": pyproject["build-system"]["requires"], "closureStatus": "incomplete", "conclusion": "NOASSERTION"}:
+    if build != {"directRequirements": _build_requirements(), "closureStatus": "incomplete", "conclusion": "NOASSERTION"}:
         raise LedgerError("build-toolchain closure must remain exact and incomplete")
 
     review = _exact_keys(ledger["review"], {"status", "releaseEligible", "openBlockers"}, "review")

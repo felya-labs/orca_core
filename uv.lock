@@ -221,6 +221,64 @@ wheels = [
 ]
 
 [[package]]
+name = "felya-orca-core"
+version = "0.4.1.post1.dev0"
+source = { editable = "." }
+dependencies = [
+    { name = "dynamixel-sdk" },
+    { name = "fastapi" },
+    { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "numpy", version = "2.4.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+    { name = "pyserial" },
+    { name = "pyyaml" },
+    { name = "uvicorn" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "httpx" },
+    { name = "pytest" },
+]
+docs = [
+    { name = "mkdocs" },
+    { name = "mkdocs-autorefs" },
+    { name = "mkdocs-awesome-pages-plugin" },
+    { name = "mkdocs-get-deps" },
+    { name = "mkdocs-material" },
+    { name = "mkdocs-material-extensions" },
+    { name = "mkdocstrings" },
+    { name = "mkdocstrings-python" },
+    { name = "pymdown-extensions" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "dynamixel-sdk", specifier = ">=3.7.31,<4.0.0" },
+    { name = "fastapi", specifier = ">=0.115.12,<0.116.0" },
+    { name = "numpy", specifier = ">=2.2.6,<3.0.0" },
+    { name = "pyserial", specifier = ">=3.5,<4.0" },
+    { name = "pyyaml", specifier = ">=6.0.2,<7.0.0" },
+    { name = "uvicorn", specifier = ">=0.34.2,<0.35.0" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "httpx", specifier = ">=0.27,<1.0" },
+    { name = "pytest", specifier = ">=8.3.5,<9.0.0" },
+]
+docs = [
+    { name = "mkdocs", specifier = "==1.6.1" },
+    { name = "mkdocs-autorefs", specifier = "==1.4.2" },
+    { name = "mkdocs-awesome-pages-plugin", specifier = "==2.10.1" },
+    { name = "mkdocs-get-deps", specifier = "==0.2.0" },
+    { name = "mkdocs-material", specifier = "==9.5.0" },
+    { name = "mkdocs-material-extensions", specifier = "==1.3.1" },
+    { name = "mkdocstrings", specifier = "==0.29.1" },
+    { name = "mkdocstrings-python", specifier = "==1.16.12" },
+    { name = "pymdown-extensions", specifier = "==10.8.1" },
+]
+
+[[package]]
 name = "ghp-import"
 version = "2.1.0"
 source = { registry = "https://pypi.org/simple" }
@@ -720,64 +778,6 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/58/ad/1100d7229bb248394939a12a8074d485b655e8ed44207d328fdd7fcebc7b/numpy-2.4.3-pp311-pypy311_pp73-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:7e58765ad74dcebd3ef0208a5078fba32dc8ec3578fe84a604432950cd043d79", size = 15800434, upload-time = "2026-03-09T07:58:44.837Z" },
     { url = "https://files.pythonhosted.org/packages/0c/fd/16d710c085d28ba4feaf29ac60c936c9d662e390344f94a6beaa2ac9899b/numpy-2.4.3-pp311-pypy311_pp73-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:8e236dbda4e1d319d681afcbb136c0c4a8e0f1a5c58ceec2adebb547357fe857", size = 16729409, upload-time = "2026-03-09T07:58:47.972Z" },
     { url = "https://files.pythonhosted.org/packages/57/a7/b35835e278c18b85206834b3aa3abe68e77a98769c59233d1f6300284781/numpy-2.4.3-pp311-pypy311_pp73-win_amd64.whl", hash = "sha256:4b42639cdde6d24e732ff823a3fa5b701d8acad89c4142bc1d0bd6dc85200ba5", size = 12504685, upload-time = "2026-03-09T07:58:50.525Z" },
-]
-
-[[package]]
-name = "orca-core"
-version = "0.4.1"
-source = { editable = "." }
-dependencies = [
-    { name = "dynamixel-sdk" },
-    { name = "fastapi" },
-    { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
-    { name = "numpy", version = "2.4.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
-    { name = "pyserial" },
-    { name = "pyyaml" },
-    { name = "uvicorn" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "httpx" },
-    { name = "pytest" },
-]
-docs = [
-    { name = "mkdocs" },
-    { name = "mkdocs-autorefs" },
-    { name = "mkdocs-awesome-pages-plugin" },
-    { name = "mkdocs-get-deps" },
-    { name = "mkdocs-material" },
-    { name = "mkdocs-material-extensions" },
-    { name = "mkdocstrings" },
-    { name = "mkdocstrings-python" },
-    { name = "pymdown-extensions" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "dynamixel-sdk", specifier = ">=3.7.31,<4.0.0" },
-    { name = "fastapi", specifier = ">=0.115.12,<0.116.0" },
-    { name = "numpy", specifier = ">=2.2.6,<3.0.0" },
-    { name = "pyserial", specifier = ">=3.5,<4.0" },
-    { name = "pyyaml", specifier = ">=6.0.2,<7.0.0" },
-    { name = "uvicorn", specifier = ">=0.34.2,<0.35.0" },
-]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "httpx", specifier = ">=0.27,<1.0" },
-    { name = "pytest", specifier = ">=8.3.5,<9.0.0" },
-]
-docs = [
-    { name = "mkdocs", specifier = "==1.6.1" },
-    { name = "mkdocs-autorefs", specifier = "==1.4.2" },
-    { name = "mkdocs-awesome-pages-plugin", specifier = "==2.10.1" },
-    { name = "mkdocs-get-deps", specifier = "==0.2.0" },
-    { name = "mkdocs-material", specifier = "==9.5.0" },
-    { name = "mkdocs-material-extensions", specifier = "==1.3.1" },
-    { name = "mkdocstrings", specifier = "==0.29.1" },
-    { name = "mkdocstrings-python", specifier = "==1.16.12" },
-    { name = "pymdown-extensions", specifier = "==10.8.1" },
 ]
 
 [[package]]

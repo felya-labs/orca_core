@@ -31,3 +31,20 @@ def test_every_external_action_is_pinned_to_a_full_commit() -> None:
             if not action or separator != "@" or FULL_COMMIT.fullmatch(revision) is None:
                 unpinned.append(f"{path.relative_to(ROOT)}:{line_number}: {match.group(1)}")
     assert not unpinned, "unpinned GitHub Actions:\n" + "\n".join(unpinned)
+
+
+def test_candidate_uses_distinct_identity_and_exact_build_backend() -> None:
+    pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+
+    assert 'name = "felya-orca-core"' in pyproject
+    assert 'version = "0.4.1.post1.dev0"' in pyproject
+    assert 'requires = ["hatchling==1.32.0"]' in pyproject
+
+
+def test_required_pr_ci_builds_and_compares_two_candidates() -> None:
+    workflow = (WORKFLOW_ROOT / "test.yml").read_text(encoding="utf-8")
+
+    assert "version: '0.11.16'" in workflow
+    assert workflow.count("uv build --wheel") == 2
+    assert "cmp build/candidate-a/*.whl build/candidate-b/*.whl" in workflow
+    assert "tools/verify_release_candidate.py" in workflow

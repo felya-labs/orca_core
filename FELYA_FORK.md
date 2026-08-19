@@ -1,0 +1,60 @@
+# FELYA fork policy
+
+This repository is the minimal FELYA patch carrier for the official
+[`orcahand/orca_core`](https://github.com/orcahand/orca_core) project.
+The official repository remains the upstream provenance source.
+
+## Repository roles
+
+Configure fresh checkouts with these remotes:
+
+```text
+origin    https://github.com/felya-labs/orca_core.git
+upstream  https://github.com/orcahand/orca_core.git
+```
+
+The initial FELYA baseline is the complete upstream commit
+`c783006ee65432bd0155708cedc685d074448c65`, published upstream as `v0.4.1`.
+The tag is informational; integrations select full commit IDs and retained
+artifact digests.
+
+## Change policy
+
+- Start an upstream sync from one reviewed, immutable upstream commit.
+- Keep every downstream change in a small pull request and classify it as a
+  general upstream candidate or a narrowly scoped FELYA integration hook.
+- Do not rewrite validated history or move a published FELYA release tag.
+- Remove a downstream patch only after its upstream replacement passes the
+  same automated and hardware gates.
+- Keep PATON sessions, leases, gestures, UI behavior, and manufacturer-neutral
+  safety policy outside this repository.
+
+## Prohibited data
+
+Do not commit or package:
+
+- serial or USB device paths;
+- individual motor scans or operator-selected ports;
+- per-hand motor directions, neutral positions, measured ranges, tension, or
+  calibration output;
+- local current limits, credentials, secrets, or generated hardware logs;
+- unreviewed experimental gesture or hardware scripts.
+
+Individual device and calibration data belongs in local Hephaistos records.
+
+## Publication boundary
+
+The inherited upstream PyPI publication workflow is intentionally removed.
+This fork must not publish under the upstream `orca_core` package identity.
+Any future FELYA distribution requires a separately reviewed package name,
+registry, signing, SBOM, retention, and release policy.
+
+GitHub Actions dependencies are pinned to full commit IDs. A hash establishes
+immutable selection, not publisher trust.
+
+## Hardware boundary
+
+Automated tests must not require a serial device or enable outputs. Hardware
+validation is a separate staged process recorded outside this repository.
+No fork commit, tag, wheel, or passing unit test grants a physical capability
+tier by itself.

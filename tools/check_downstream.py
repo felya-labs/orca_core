@@ -32,6 +32,7 @@ from __future__ import annotations
 import argparse
 import ast
 import importlib
+import re
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -51,6 +52,10 @@ DOWNSTREAM = (
 )
 
 SKIP_DIRS = {"node_modules", "__pycache__", "dist", "build"}
+LOCAL_DISTRIBUTION = "felya-orca-core"
+LEGACY_DISTRIBUTION = re.compile(
+    r"(?m)^\s*[\"']orca[_-]core(?:[<>=!~; @\"']|$)", re.IGNORECASE
+)
 
 
 @dataclass
@@ -123,6 +128,24 @@ def run_tests(repo: Path, uv_args: list) -> bool:
     return subprocess.run(cmd, cwd=repo).returncode == 0
 
 
+def distribution_migration_blocker(repo: Path) -> str | None:
+    """Explain why a consumer cannot resolve the renamed FELYA distribution."""
+
+    pyproject = repo / "pyproject.toml"
+    if not pyproject.is_file():
+        return None
+    text = pyproject.read_text(encoding="utf-8")
+    dependencies = re.search(
+        r"(?ms)^dependencies\s*=\s*\[(.*?)\]", text
+    )
+    if dependencies is None or LEGACY_DISTRIBUTION.search(dependencies.group(1)) is None:
+        return None
+    return (
+        "distribution migration pending: consumer requires orca-core, "
+        f"candidate provides {LOCAL_DISTRIBUTION}"
+    )
+
+
 def find_symbol(repo: Path, symbol: str) -> list[str]:
     result = subprocess.run(
         ["git", "grep", "-n", "-w", symbol],
@@ -189,6 +212,8 @@ def main() -> int:
         if args.run_tests:
             if test_args is None:
                 print("  tests: none")
+            elif blocker := distribution_migration_blocker(repo):
+                print(f"  tests: skipped ({blocker})")
             elif not run_tests(repo, test_args):
                 failed.append(repo.name)
 

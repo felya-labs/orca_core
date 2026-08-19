@@ -55,6 +55,10 @@ compatibility. Version `0.4.1.post1.dev0` means only "FELYA candidate derived
 from upstream 0.4.1". It is not a release, is not hardware-validated, and must
 not be uploaded to a registry. Candidate CI builds twice from the same source
 commit and validates identical wheel bytes plus an external evidence record.
+Downstream repositories that still require the upstream `orca-core`
+distribution remain import-checked, but their suites are reported as blocked
+until they explicitly migrate to `felya-orca-core`; unrelated failures remain
+fatal to the downstream check.
 
 GitHub Actions dependencies are pinned to full commit IDs. A hash establishes
 immutable selection, not publisher trust.

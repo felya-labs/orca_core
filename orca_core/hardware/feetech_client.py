@@ -121,7 +121,7 @@ class FeetechClient(MotorClient):
     def __init__(
         self,
         motor_ids: Sequence[int],
-        port: str = '/dev/ttyUSB0',
+        port: str = 'auto',
         baudrate: int = 1000000,
         lazy_connect: bool = False,
         pos_scale: Optional[float] = None,
@@ -132,7 +132,8 @@ class FeetechClient(MotorClient):
 
         Args:
             motor_ids: All motor IDs being used by the client.
-            port: The serial port to connect to.
+            port: An explicitly resolved serial port. ``"auto"`` is a
+                fail-closed placeholder; this low-level client never probes.
             baudrate: The baudrate to communicate with.
             lazy_connect: If True, automatically connects when calling a method
                 that requires a connection, if not already connected.

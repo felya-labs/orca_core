@@ -88,7 +88,7 @@ class MockDynamixelClient(MotorClient):
 
     def __init__(self,
                  motor_ids: Sequence[int],
-                 port: str = '/dev/ttyUSB0',
+                 port: str = 'mock',
                  baudrate: int = 1000000,
                  lazy_connect: bool = False,
                  pos_scale: Optional[float] = None,
@@ -99,9 +99,7 @@ class MockDynamixelClient(MotorClient):
         Args:
             motor_ids: All motor IDs being used by the client.
             port: The Dynamixel device to talk to. e.g.
-                - Linux: /dev/ttyUSB0
-                - Mac: /dev/tty.usbserial-*
-                - Windows: COM1
+                This mock defaults to the non-device identifier ``"mock"``.
             baudrate: The Dynamixel baudrate to communicate with.
             lazy_connect: If True, automatically connects when calling a method
                 that requires a connection, if not already connected.
@@ -527,7 +525,7 @@ if __name__ == '__main__':
     parser.add_argument(
         '-d',
         '--device',
-        default='/dev/cu.usbserial-FT62AFSR',
+        required=True,
         help='The Dynamixel device to connect to.')
     parser.add_argument(
         '-b', '--baud', default=1000000, help='The baudrate to connect with.')

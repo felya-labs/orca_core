@@ -19,6 +19,8 @@ jobs:
 
       - name: Install uv
         uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+        with:
+          version: '0.11.16'
 
       - name: Install dependencies
         run: |
@@ -27,3 +29,16 @@ jobs:
       - name: Run Tests
         run: |
           uv run pytest
+
+      - name: Derive reproducible build timestamp from source commit
+        run: echo "SOURCE_DATE_EPOCH=$(git show -s --format=%ct HEAD)" >> "$GITHUB_ENV"
+
+      - name: Build reproducible release candidate twice
+        run: |
+          uv build --wheel --out-dir build/candidate-a
+          uv build --wheel --out-dir build/candidate-b
+          cmp build/candidate-a/*.whl build/candidate-b/*.whl
+          uv run --no-sync python tools/verify_release_candidate.py \
+            build/candidate-a/*.whl \
+            --comparison-wheel build/candidate-b/*.whl \
+            --evidence-out build/release-candidate-evidence.json

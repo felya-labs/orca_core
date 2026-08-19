@@ -42,3 +42,14 @@ jobs:
             build/candidate-a/*.whl \
             --comparison-wheel build/candidate-b/*.whl \
             --evidence-out build/release-candidate-evidence.json
+
+      - name: Generate deterministic runtime-lock SBOM twice
+        run: |
+          uv run --no-sync python tools/generate_runtime_sbom.py \
+            --sbom-out build/compliance-a/runtime.cdx.json \
+            --status-out build/compliance-a/status.json
+          uv run --no-sync python tools/generate_runtime_sbom.py \
+            --sbom-out build/compliance-b/runtime.cdx.json \
+            --status-out build/compliance-b/status.json
+          cmp build/compliance-a/runtime.cdx.json build/compliance-b/runtime.cdx.json
+          cmp build/compliance-a/status.json build/compliance-b/status.json

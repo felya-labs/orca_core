@@ -53,3 +53,7 @@ jobs:
             --status-out build/compliance-b/status.json
           cmp build/compliance-a/runtime.cdx.json build/compliance-b/runtime.cdx.json
           cmp build/compliance-a/status.json build/compliance-b/status.json
+          uv run --no-sync python tools/validate_license_provenance.py \
+            --sbom build/compliance-a/runtime.cdx.json
+          uv run --no-sync python tools/validate_license_provenance.py \
+            --sbom build/compliance-b/runtime.cdx.json

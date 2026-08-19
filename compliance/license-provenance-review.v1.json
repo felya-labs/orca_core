@@ -1,0 +1,90 @@
+{
+  "schemaVersion": 1,
+  "subject": {
+    "purl": "pkg:pypi/felya-orca-core@0.4.1.post1.dev0",
+    "reviewedSourceCommit": "559bb6916c5c8e093b180e2832b449318d50c324",
+    "uvLockSha256": "e9a2494770d25f2a74f9016f16f0ffcbb05b10791e2b833747ea20d0b21c9ad3",
+    "pyprojectSha256": "fa2290b1068baf562204339062ea2e1b38f1a72f745447e5f1bc5c188658896b"
+  },
+  "evidence": [
+    {
+      "id": "repository-mit-license",
+      "kind": "license-text",
+      "path": "LICENSE",
+      "sha256": "1db99fa6aee1feee9e9de24e1e658ac108ab6a86df4292f9f96253e03180af9b"
+    }
+  ],
+  "rootConclusion": {
+    "kind": "spdx",
+    "expression": "MIT",
+    "evidenceIds": ["repository-mit-license"],
+    "scope": "repository-root-only"
+  },
+  "runtimeReviews": [
+    {"purl": "pkg:pypi/annotated-types@0.7.0", "conclusion": "NOASSERTION"},
+    {"purl": "pkg:pypi/anyio@4.13.0", "conclusion": "NOASSERTION"},
+    {"purl": "pkg:pypi/click@8.3.1", "conclusion": "NOASSERTION"},
+    {"purl": "pkg:pypi/colorama@0.4.6", "conclusion": "NOASSERTION"},
+    {"purl": "pkg:pypi/dynamixel-sdk@3.8.4", "conclusion": "NOASSERTION"},
+    {"purl": "pkg:pypi/exceptiongroup@1.3.1", "conclusion": "NOASSERTION"},
+    {"purl": "pkg:pypi/fastapi@0.115.14", "conclusion": "NOASSERTION"},
+    {"purl": "pkg:pypi/h11@0.16.0", "conclusion": "NOASSERTION"},
+    {"purl": "pkg:pypi/idna@3.11", "conclusion": "NOASSERTION"},
+    {"purl": "pkg:pypi/numpy@2.2.6", "conclusion": "NOASSERTION"},
+    {"purl": "pkg:pypi/numpy@2.4.3", "conclusion": "NOASSERTION"},
+    {"purl": "pkg:pypi/pydantic-core@2.41.5", "conclusion": "NOASSERTION"},
+    {"purl": "pkg:pypi/pydantic@2.12.5", "conclusion": "NOASSERTION"},
+    {"purl": "pkg:pypi/pyserial@3.5", "conclusion": "NOASSERTION"},
+    {"purl": "pkg:pypi/pyyaml@6.0.3", "conclusion": "NOASSERTION"},
+    {"purl": "pkg:pypi/starlette@0.46.2", "conclusion": "NOASSERTION"},
+    {"purl": "pkg:pypi/typing-extensions@4.15.0", "conclusion": "NOASSERTION"},
+    {"purl": "pkg:pypi/typing-inspection@0.4.2", "conclusion": "NOASSERTION"},
+    {"purl": "pkg:pypi/uvicorn@0.34.3", "conclusion": "NOASSERTION"}
+  ],
+  "sourceSurfaces": [
+    {
+      "id": "adapted-dynamixel-client",
+      "classification": "adapted-third-party",
+      "declaredLicense": "Apache-2.0",
+      "conclusion": "NOASSERTION",
+      "provenanceStatus": "incomplete",
+      "files": [
+        {"path": "orca_core/hardware/dynamixel_client.py", "sha256": "7923b48041ffd5a74b82a1fb4b65d8c8b822f34925212b979f4b9b8c4b8084e6"}
+      ]
+    },
+    {
+      "id": "vendored-feetech-sdk-derived",
+      "classification": "vendored-third-party",
+      "declaredLicense": "NOASSERTION",
+      "conclusion": "NOASSERTION",
+      "provenanceStatus": "unreviewed",
+      "files": [
+        {"path": "orca_core/hardware/feetech/__init__.py", "sha256": "58c9179f11b10f9b93ade8a3ad2d41616fb5dfdb2de0e6ccae12b18cdb0343f1"},
+        {"path": "orca_core/hardware/feetech/group_sync_read.py", "sha256": "5584b160deb8b6b5f3572e06d02a68b00f6c802388937df986a0e272fa23080a"},
+        {"path": "orca_core/hardware/feetech/group_sync_write.py", "sha256": "a4e4b0644e8c8200238a891a1e2793b902b9011b34b7308261bc30bf84739eee"},
+        {"path": "orca_core/hardware/feetech/hls.py", "sha256": "2dda0b6d2ab7b81df1db139850e131a4aabe21e9e6fde4ae7ddd22aff4bcd3ae"},
+        {"path": "orca_core/hardware/feetech/port_handler.py", "sha256": "31a5cee6a61bff78f8cc7e48b9153170197d5c376be05626562c66b53a17ee02"},
+        {"path": "orca_core/hardware/feetech/protocol_packet_handler.py", "sha256": "60ac1bbb56ff94b2ae26ed26746b03da9c9b812459c34488ea6ca12d8919171c"},
+        {"path": "orca_core/hardware/feetech/scscl.py", "sha256": "44f9b388d100bba76763afab4674b8e6303a63fc9501c96c83f86aabf46953d5"},
+        {"path": "orca_core/hardware/feetech/scservo_def.py", "sha256": "4d424845867b1211bce22dfc3ad8b2c17023066d9d18526248c0271430f02398"},
+        {"path": "orca_core/hardware/feetech/sms_sts.py", "sha256": "67dda5b364ee80aac9bf0f866363170187d515b912429db05640a99a98252da2"}
+      ]
+    }
+  ],
+  "buildToolchain": {
+    "directRequirements": ["hatchling==1.32.0"],
+    "closureStatus": "incomplete",
+    "conclusion": "NOASSERTION"
+  },
+  "review": {
+    "status": "incomplete",
+    "releaseEligible": false,
+    "openBlockers": [
+      "adapted-dynamixel-license-obligations",
+      "artifact-retention",
+      "build-toolchain-inventory",
+      "runtime-license-review",
+      "vendored-feetech-provenance"
+    ]
+  }
+}

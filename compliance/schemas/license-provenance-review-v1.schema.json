@@ -1,0 +1,96 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://felya.dev/schemas/license-provenance-review-v1.schema.json",
+  "title": "FELYA license and provenance review ledger v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "subject", "evidence", "rootConclusion", "runtimeReviews", "sourceSurfaces", "buildToolchain", "review"],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "subject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["purl", "reviewedSourceCommit", "uvLockSha256", "pyprojectSha256"],
+      "properties": {
+        "purl": {"type": "string", "pattern": "^pkg:pypi/[^@]+@[^@]+$"},
+        "reviewedSourceCommit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "uvLockSha256": {"$ref": "#/$defs/sha256"},
+        "pyprojectSha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "evidence": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/evidence"}},
+    "rootConclusion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "expression", "evidenceIds", "scope"],
+      "properties": {
+        "kind": {"const": "spdx"},
+        "expression": {"const": "MIT"},
+        "evidenceIds": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+        "scope": {"const": "repository-root-only"}
+      }
+    },
+    "runtimeReviews": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/runtimeReview"}},
+    "sourceSurfaces": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/sourceSurface"}},
+    "buildToolchain": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["directRequirements", "closureStatus", "conclusion"],
+      "properties": {
+        "directRequirements": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+        "closureStatus": {"const": "incomplete"},
+        "conclusion": {"const": "NOASSERTION"}
+      }
+    },
+    "review": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "releaseEligible", "openBlockers"],
+      "properties": {
+        "status": {"const": "incomplete"},
+        "releaseEligible": {"const": false},
+        "openBlockers": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string"}}
+      }
+    }
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "file": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {"path": {"type": "string"}, "sha256": {"$ref": "#/$defs/sha256"}}
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "path", "sha256"],
+      "properties": {
+        "id": {"type": "string"},
+        "kind": {"enum": ["license-text", "source-archive", "package-metadata", "review-note"]},
+        "path": {"type": "string"},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "runtimeReview": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["purl", "conclusion"],
+      "properties": {"purl": {"type": "string"}, "conclusion": {"const": "NOASSERTION"}}
+    },
+    "sourceSurface": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "classification", "declaredLicense", "conclusion", "provenanceStatus", "files"],
+      "properties": {
+        "id": {"type": "string"},
+        "classification": {"enum": ["adapted-third-party", "vendored-third-party"]},
+        "declaredLicense": {"enum": ["Apache-2.0", "NOASSERTION"]},
+        "conclusion": {"const": "NOASSERTION"},
+        "provenanceStatus": {"enum": ["unreviewed", "incomplete"]},
+        "files": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/file"}}
+      }
+    }
+  },
+  "$comment": "The stdlib-only offline validator enforces the closed nested shapes and cross-file invariants; this schema identifies the versioned wire format."
+}

@@ -55,11 +55,12 @@ def _source_identity() -> tuple[str, int]:
 
 
 def _export_uv_sbom() -> dict[str, Any]:
-    version = subprocess.run(
+    version_output = subprocess.run(
         ["uv", "--version"], check=True, capture_output=True, text=True
     ).stdout.strip()
-    if version != f"uv {EXPECTED_UV}":
-        raise SbomError(f"expected uv {EXPECTED_UV}, got {version!r}")
+    parts = version_output.split()
+    if len(parts) < 2 or parts[:2] != ["uv", EXPECTED_UV]:
+        raise SbomError(f"expected uv {EXPECTED_UV}, got {version_output!r}")
     with tempfile.TemporaryDirectory(prefix="felya-orca-sbom-") as directory:
         output = Path(directory) / "uv.cdx.json"
         subprocess.run(

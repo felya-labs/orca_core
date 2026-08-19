@@ -22,6 +22,7 @@ EXPECTED_BLOCKERS = {
     "runtime-license-review",
     "vendored-feetech-provenance",
 }
+EXPECTED_REVIEWED_SOURCE_COMMIT = "559bb6916c5c8e093b180e2832b449318d50c324"
 EXPECTED_FEETECH = {
     path.as_posix()
     for path in (ROOT / "orca_core/hardware/feetech").glob("*.py")
@@ -119,11 +120,8 @@ def validate_ledger(ledger: dict[str, Any], sbom: dict[str, Any]) -> None:
     commit = subject["reviewedSourceCommit"]
     if not isinstance(commit, str) or len(commit) != 40 or any(c not in FULL_SHA for c in commit):
         raise LedgerError("reviewed source commit must be a full lowercase SHA")
-    ancestry = subprocess.run(
-        ["git", "merge-base", "--is-ancestor", commit, "HEAD"], cwd=ROOT, check=False
-    )
-    if ancestry.returncode != 0:
-        raise LedgerError("reviewed source commit must exist in the current source ancestry")
+    if commit != EXPECTED_REVIEWED_SOURCE_COMMIT:
+        raise LedgerError("reviewed source commit differs from the approved baseline")
     if subject["uvLockSha256"] != sha256_bytes((ROOT / "uv.lock").read_bytes()):
         raise LedgerError("ledger uv.lock digest differs from local bytes")
     if subject["pyprojectSha256"] != sha256_bytes((ROOT / "pyproject.toml").read_bytes()):

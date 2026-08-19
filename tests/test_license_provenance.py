@@ -66,6 +66,7 @@ def test_third_party_sources_remain_noassertion() -> None:
     [
         lambda value: value["subject"].update({"uvLockSha256": "0" * 64}),
         lambda value: value["subject"].update({"reviewedSourceCommit": "main"}),
+        lambda value: value["subject"].update({"reviewedSourceCommit": "0" * 40}),
         lambda value: value["runtimeReviews"].pop(),
         lambda value: value["runtimeReviews"].append(copy.deepcopy(value["runtimeReviews"][0])),
         lambda value: value["runtimeReviews"][0].update({"conclusion": "MIT"}),

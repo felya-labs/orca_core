@@ -18,6 +18,7 @@ from .constants import (
     JOINT_IDS,
     JOINT_ROM_DICT,
     JOINT_TO_MOTOR_MAP,
+    MOTOR_BAUD_RATES,
     MOTOR_IDS,
     SUPPORTED_MOTOR_TYPES,
 )
@@ -353,9 +354,57 @@ class OrcaHandConfig(BaseHandConfig):
                 f"Expected one of {SUPPORTED_MOTOR_TYPES} or omit for auto-detection."
             )
 
-        if self.max_current < self.calibration_current:
+        if (
+            self.motor_type is not None
+            and self.baudrate is not None
+            and self.baudrate not in MOTOR_BAUD_RATES[self.motor_type]
+        ):
             raise HandConfigValidationError(
-                "Max current should be greater than the calibration current."
+                f"Baudrate {self.baudrate} is not supported for "
+                f"motor_type {self.motor_type!r}. Expected one of "
+                f"{MOTOR_BAUD_RATES[self.motor_type]}."
+            )
+
+        current_fields = {
+            "max_current": self.max_current,
+            "calibration_current": self.calibration_current,
+            "wrist_calibration_current": self.wrist_calibration_current,
+        }
+        non_positive_currents = [
+            name for name, value in current_fields.items() if value <= 0
+        ]
+        if non_positive_currents:
+            raise HandConfigValidationError(
+                "Current limits must be positive: " + ", ".join(non_positive_currents)
+            )
+
+        if self.max_current < max(
+            self.calibration_current, self.wrist_calibration_current
+        ):
+            raise HandConfigValidationError(
+                "Max current must be greater than or equal to both finger and "
+                "wrist calibration currents."
+            )
+
+        positive_calibration_fields = {
+            "calibration_step_size": self.calibration_step_size,
+            "calibration_step_period": self.calibration_step_period,
+            "calibration_threshold": self.calibration_threshold,
+        }
+        non_positive_calibration_fields = [
+            name
+            for name, value in positive_calibration_fields.items()
+            if value <= 0
+        ]
+        if non_positive_calibration_fields:
+            raise HandConfigValidationError(
+                "Calibration parameters must be positive: "
+                + ", ".join(non_positive_calibration_fields)
+            )
+
+        if self.calibration_num_stable < 2:
+            raise HandConfigValidationError(
+                "calibration_num_stable must contain at least two samples."
             )
 
         for joint, motor_id in self.joint_to_motor_map.items():

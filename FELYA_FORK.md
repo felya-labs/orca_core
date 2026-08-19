@@ -60,6 +60,15 @@ distribution remain import-checked, but their suites are reported as blocked
 until they explicitly migrate to `felya-orca-core`; unrelated failures remain
 fatal to the downstream check.
 
+Candidate CI also generates a deterministic CycloneDX 1.5
+`runtime-lock-union` inventory from the exact `uv.lock`. It describes every
+marker/platform alternative reachable from the runtime root; it is not an
+installed-environment SBOM. The companion compliance status remains
+`releaseEligible: false` while runtime license review, build-toolchain
+inventory, immutable retention, or vendored Feetech SDK provenance is open.
+Only the byte-verified repository MIT license is asserted. No transitive or
+vendored license is inferred from a package name, lock hash, or root license.
+
 GitHub Actions dependencies are pinned to full commit IDs. A hash establishes
 immutable selection, not publisher trust.
 

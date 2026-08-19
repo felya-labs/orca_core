@@ -48,3 +48,12 @@ def test_required_pr_ci_builds_and_compares_two_candidates() -> None:
     assert workflow.count("uv build --wheel") == 2
     assert "cmp build/candidate-a/*.whl build/candidate-b/*.whl" in workflow
     assert "tools/verify_release_candidate.py" in workflow
+
+
+def test_required_pr_ci_generates_and_compares_runtime_sbom() -> None:
+    workflow = (WORKFLOW_ROOT / "test.yml").read_text(encoding="utf-8")
+
+    assert workflow.count("tools/generate_runtime_sbom.py") == 2
+    assert "cmp build/compliance-a/runtime.cdx.json" in workflow
+    assert "cmp build/compliance-a/status.json" in workflow
+    assert "upload-artifact" not in workflow

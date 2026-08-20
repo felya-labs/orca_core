@@ -659,3 +659,41 @@ def test_calibrate_stop_mid_drive_loop_persists_nothing(calib_dir):
     assert hand.calibration.joint_to_motor_ratios_dict == pre_ratios
     assert hand.calibration.joint_encoder_calibration_dict == pre_encoders
     assert not calib_path.exists(), "aborted mid-drive run must not write calibration"
+
+
+@pytest.mark.parametrize("timeout", [0, -1, float("inf"), float("nan"), True])
+def test_calibrate_rejects_invalid_step_timeout_before_hardware(calib_dir, timeout):
+    hand = MockOrcaHand(config_path=str(calib_dir / "config.yaml"))
+    hand.connect()
+    calls = []
+    hand.set_control_mode = lambda *_args, **_kwargs: calls.append("control-mode")
+
+    with pytest.raises(ValueError, match="positive finite"):
+        hand.calibrate(step_timeout_s=timeout)
+
+    assert calls == []
+
+
+def test_calibrate_step_timeout_aborts_and_releases_torque(
+    calib_dir, monkeypatch
+):
+    from orca_core.maintenance import calibration_routine
+
+    hand = MockOrcaHand(config_path=str(calib_dir / "config.yaml"))
+    hand.connect()
+    events = []
+    clock = iter((10.0, 12.0))
+    monkeypatch.setattr(calibration_routine.time, "monotonic", lambda: next(clock))
+
+    hand.calibrate(
+        joints=["thumb_cmc"],
+        progress_callback=events.append,
+        persist=True,
+        step_timeout_s=1.0,
+    )
+
+    kinds = [event["event"] for event in events]
+    assert kinds[-1] == "calibration_step_timed_out"
+    assert "step_done" not in kinds
+    assert not any(hand.motor_client._torque_enabled.values())
+    assert not (calib_dir / "calibration.yaml").exists()

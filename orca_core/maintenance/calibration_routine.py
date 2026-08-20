@@ -29,6 +29,7 @@ the work already done.
 from __future__ import annotations
 
 import logging
+import math
 import time
 from collections import deque
 from typing import Callable, Dict, Optional, TYPE_CHECKING
@@ -90,6 +91,7 @@ def run_calibration(
     progress_callback: Optional[ProgressCallback] = None,
     should_stop: Optional[ShouldStop] = None,
     persist: bool = True,
+    step_timeout_s: float | None = None,
 ) -> CalibrationResult | None:
     """Run the calibration routine on ``hand`` and return the result.
 
@@ -115,6 +117,7 @@ def run_calibration(
             ``offset_calibration_failed``, ``torque_release_failed``,
             ``wrist_skipped``, ``step_done``, ``calibration_done``,
             ``calibration_aborted``,
+            ``calibration_step_timed_out``,
             ``cleanup_failed``). Called from the calibrating thread; must be
             fast and non-blocking. Exceptions raised by the callback are
             swallowed.
@@ -122,7 +125,20 @@ def run_calibration(
             commands; return ``True`` to abort cooperatively.
         persist: When ``False``, nothing is written to ``calibration.yaml``;
             results are still committed to ``hand.calibration`` in memory.
+        step_timeout_s: Optional elapsed-time bound checked between hardware
+            calls for each calibration step. A timeout aborts the whole routine
+            and releases torque. This cannot interrupt a blocked driver call;
+            safety runtimes still need an outer hard process deadline. The
+            default preserves the upstream unbounded behavior; safety runtimes
+            should always provide an explicit positive finite value.
     """
+    if step_timeout_s is not None and (
+        isinstance(step_timeout_s, bool)
+        or not isinstance(step_timeout_s, (int, float))
+        or not math.isfinite(step_timeout_s)
+        or step_timeout_s <= 0
+    ):
+        raise ValueError("step_timeout_s must be a positive finite number")
     if should_stop is None:
         should_stop = lambda: False  # noqa: E731
 
@@ -136,6 +152,7 @@ def run_calibration(
             progress_callback=progress_callback,
             should_stop=should_stop,
             persist=persist,
+            step_timeout_s=step_timeout_s,
         )
     finally:
         if result is None:
@@ -235,6 +252,7 @@ def _drive_calibration(
     progress_callback: Optional[ProgressCallback],
     should_stop: ShouldStop,
     persist: bool,
+    step_timeout_s: float | None,
 ) -> CalibrationResult | None:
     """Execute the calibration routine and return a :class:`~orca_core.CalibrationResult`.
 
@@ -358,6 +376,11 @@ def _drive_calibration(
     )
 
     for step_index, step in enumerate(calibration_sequence):
+        step_deadline = (
+            time.monotonic() + step_timeout_s
+            if step_timeout_s is not None
+            else None
+        )
         hand.disable_torque()
 
         if should_stop():
@@ -431,6 +454,15 @@ def _drive_calibration(
             motor_reached_limit[motor_id] = False
 
         while not all(motor_reached_limit.values()) and not should_stop():
+            if step_deadline is not None and time.monotonic() >= step_deadline:
+                _emit(
+                    progress_callback,
+                    "calibration_step_timed_out",
+                    index=step_index,
+                    total=len(calibration_sequence),
+                    timeout_s=step_timeout_s,
+                )
+                return None
             desired_increment = {}
             for motor_id, reached_limit in motor_reached_limit.items():
                 if not reached_limit:
@@ -490,6 +522,15 @@ def _drive_calibration(
         # anchor pass and limit capture persist values from an arbitrary pose.
         if should_stop():
             _emit(progress_callback, "calibration_aborted")
+            return None
+        if step_deadline is not None and time.monotonic() >= step_deadline:
+            _emit(
+                progress_callback,
+                "calibration_step_timed_out",
+                index=step_index,
+                total=len(calibration_sequence),
+                timeout_s=step_timeout_s,
+            )
             return None
 
         # Motors are still pressing their hardstops with calibration current:

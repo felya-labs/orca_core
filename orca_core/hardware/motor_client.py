@@ -267,6 +267,26 @@ class MotorClient(ABC):
         """
         ...
 
+    def write_desired_pos_profiled(
+        self,
+        motor_ids: Sequence[int],
+        positions: np.ndarray,
+        *,
+        speed: int,
+        acceleration: int,
+        torque: int,
+    ) -> list[int]:
+        """Write positions with an explicit hardware-native motion profile.
+
+        Drivers that support an atomic position/profile packet override this
+        method and return the motor IDs whose packet was not acknowledged.
+        The base contract fails closed instead of silently dropping profile
+        limits.
+        """
+        raise NotImplementedError(
+            "profiled position writes are unsupported by this motor client"
+        )
+
     def wait_for_motion_complete(self, timeout: float = 5.0) -> None:
         """Block until all motors finish their commanded motion.
 

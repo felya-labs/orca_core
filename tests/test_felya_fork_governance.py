@@ -33,6 +33,17 @@ def test_every_external_action_is_pinned_to_a_full_commit() -> None:
     assert not unpinned, "unpinned GitHub Actions:\n" + "\n".join(unpinned)
 
 
+def test_pull_request_workflows_skip_drafts_and_run_when_marked_ready() -> None:
+    trigger = (
+        "types: [opened, synchronize, reopened, ready_for_review, "
+        "converted_to_draft]"
+    )
+    for name in ("test.yml", "downstream.yml"):
+        workflow = (WORKFLOW_ROOT / name).read_text(encoding="utf-8")
+        assert trigger in workflow
+        assert "if: github.event.pull_request.draft == false" in workflow
+
+
 def test_candidate_uses_distinct_identity_and_exact_build_backend() -> None:
     pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
 

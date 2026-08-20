@@ -728,6 +728,68 @@ class FeetechClient(MotorClient):
         """
         self.write_positions_sync(motor_ids, positions, speed=speed, torque=torque)
 
+    def write_desired_pos_profiled(
+        self,
+        motor_ids: Sequence[int],
+        positions: np.ndarray,
+        *,
+        speed: int,
+        acceleration: int,
+        torque: int,
+    ) -> list[int]:
+        """Write one explicit Feetech position/profile packet.
+
+        Profile values use the controller's native units and are never taken
+        from mutable client defaults. Each selected motor is addressed
+        directly so communication and device errors are reported per motor.
+        """
+        if not motor_ids:
+            raise ValueError("motor_ids must not be empty")
+        if len(motor_ids) != len(positions):
+            raise ValueError("motor_ids and positions must have the same length")
+        if len(set(motor_ids)) != len(motor_ids):
+            raise ValueError("motor_ids must be unique")
+        if any(motor_id not in self.motor_ids for motor_id in motor_ids):
+            raise ValueError("motor_ids contain an unknown motor")
+        if not np.all(np.isfinite(positions)):
+            raise ValueError("positions must be finite")
+        if (
+            isinstance(speed, bool)
+            or not isinstance(speed, int)
+            or not 1 <= speed <= 32766
+        ):
+            raise ValueError("speed must be an integer inside [1, 32766]")
+        if (
+            isinstance(acceleration, bool)
+            or not isinstance(acceleration, int)
+            or not 0 <= acceleration <= 254
+        ):
+            raise ValueError("acceleration must be an integer inside [0, 254]")
+        if (
+            isinstance(torque, bool)
+            or not isinstance(torque, int)
+            or not 1 <= torque <= 1000
+        ):
+            raise ValueError("torque must be an integer inside [1, 1000]")
+        self._check_write_allowed()
+        failed_ids: list[int] = []
+        with self._bus_lock:
+            for motor_id, position in zip(motor_ids, positions):
+                position_raw = self._clamp_position(
+                    self._rad_to_raw(float(position), self.pos_scale)
+                )
+                result, error = self.packet_handler.WritePosEx(
+                    motor_id,
+                    position_raw,
+                    speed,
+                    acceleration,
+                    torque,
+                )
+                if result != COMM_SUCCESS or error != 0:
+                    self._flush_input_buffer()
+                    failed_ids.append(motor_id)
+        return failed_ids
+
     def write_desired_current(
         self,
         motor_ids: Sequence[int],

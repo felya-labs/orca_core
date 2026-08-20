@@ -70,6 +70,8 @@ class FakePacketHandler:
         self.sync_fails = False
         self.log: list[str] = []
         self.write1_hook = None  # callable(motor_id, address, value) -> (result, error)
+        self.write_pos_hook = None
+        self.profile_writes = []
         self.ofs_hook = None     # callable(motor_id, position) -> (result, error)
         self.client: FeetechClient | None = None
         self.lock_checks: list[bool] = []
@@ -109,6 +111,13 @@ class FakePacketHandler:
         self._record("write1")
         if self.write1_hook is not None:
             return self.write1_hook(motor_id, address, value)
+        return COMM_SUCCESS, 0
+
+    def WritePosEx(self, motor_id, position, speed, acc, torque):
+        self._record("write_pos")
+        self.profile_writes.append((motor_id, position, speed, acc, torque))
+        if self.write_pos_hook is not None:
+            return self.write_pos_hook(motor_id, position, speed, acc, torque)
         return COMM_SUCCESS, 0
 
     def reOfsCal(self, motor_id, position):
@@ -528,6 +537,9 @@ def test_motor_inventory_preserves_unknown_model_number(client):
         lambda client: client.change_motor_id(1, 2),
         lambda client: client.change_motor_baudrate(1, 500_000),
         lambda client: client.write_desired_pos([1], np.array([0.0])),
+        lambda client: client.write_desired_pos_profiled(
+            [1], np.array([0.0]), speed=10, acceleration=5, torque=300
+        ),
         lambda client: client.write_desired_current([1], np.array([100.0])),
         lambda client: client.calibrate_offset(1),
         lambda client: client.write_positions_sync([1], np.array([0.0])),
@@ -543,6 +555,57 @@ def test_observe_only_session_rejects_every_public_write(client, operation):
     assert not any(
         item.startswith("write") or item == "ofs_cal" for item in handler.log
     )
+
+
+def test_profiled_position_write_forwards_exact_selected_profile(client):
+    feetech, handler = client
+
+    failed = feetech.write_desired_pos_profiled(
+        [2], np.array([-1.25]), speed=10, acceleration=5, torque=300
+    )
+
+    assert failed == []
+    expected_raw = feetech._rad_to_raw(-1.25, feetech.pos_scale)
+    assert handler.profile_writes == [(2, expected_raw, 10, 5, 300)]
+
+
+def test_profiled_position_write_preserves_failed_selected_ids(client):
+    feetech, handler = client
+    feetech.port_handler.ser = FakeSerial(handler.log)
+    handler.write_pos_hook = lambda *args: (1, 0)
+
+    assert feetech.write_desired_pos_profiled(
+        [2], np.array([-1.25]), speed=10, acceleration=5, torque=300
+    ) == [2]
+
+
+@pytest.mark.parametrize(
+    ("motor_ids", "positions", "profile", "match"),
+    [
+        ([], np.array([]), (10, 5, 300), "must not be empty"),
+        ([2, 2], np.array([0.0, 0.0]), (10, 5, 300), "unique"),
+        ([99], np.array([0.0]), (10, 5, 300), "unknown motor"),
+        ([2], np.array([float("nan")]), (10, 5, 300), "finite"),
+        ([2], np.array([0.0]), (0, 5, 300), "speed"),
+        ([2], np.array([0.0]), (10, 255, 300), "acceleration"),
+        ([2], np.array([0.0]), (10, 5, 0), "torque"),
+    ],
+)
+def test_profiled_position_write_rejects_invalid_inputs_before_bus_write(
+    client, motor_ids, positions, profile, match
+):
+    feetech, handler = client
+
+    with pytest.raises(ValueError, match=match):
+        feetech.write_desired_pos_profiled(
+            motor_ids,
+            positions,
+            speed=profile[0],
+            acceleration=profile[1],
+            torque=profile[2],
+        )
+
+    assert handler.profile_writes == []
 
 
 def test_exit_cleanup_preserves_observe_only_no_write_contract(monkeypatch):

@@ -113,3 +113,11 @@ joint interpolation must remain sparse; it must not synthesize targets for
 unselected motors. Contract tests trace every mocked vendor write and reject a
 single-joint run that addresses any other motor. This is a software boundary,
 not evidence that mechanical coupling or passive backdrive cannot occur.
+
+The Feetech client additionally exposes an explicit profiled position write.
+It binds selected motor IDs, positions, native speed, native acceleration, and
+torque into addressed per-motor packets and reports communication or device
+errors for each selected motor. It rejects missing, duplicate, unknown,
+non-finite, or out-of-range inputs before bus I/O and remains unavailable in an
+observe-only session. The raw profile ranges are device capabilities, not a
+generic safety policy; Hephaistos must impose its narrower runtime limits.

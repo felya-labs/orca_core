@@ -308,6 +308,34 @@ class OrcaHand(BaseHand):
             return True, f"Connection successful with port {chosen_port}"
         return False, f"Connection failed with selected port: {str(error)}"
 
+    def connect_explicit(self) -> tuple[bool, str]:
+        """Open only the exact configured motor port, without discovery.
+
+        This fail-closed entry point is intended for an owning runtime that
+        already resolved and validated a machine-local port.  It never calls
+        USB discovery, tries an alternative port, or opens an interactive
+        picker.  ``port: auto`` is rejected before any hardware access.
+
+        Returns:
+            A ``(success, message)`` tuple.  Failure restores the original
+            configuration through :meth:`_try_port` and does not attempt a
+            fallback connection.
+        """
+        if self.is_connected():
+            return True, "Already connected"
+        port = self.config.port
+        if not isinstance(port, str) or not port or port == "auto":
+            return False, "Explicit connection requires a configured port"
+
+        error = self._try_port(port, self.config)
+        if error is not None:
+            logger.warning("Explicit connection failed on %s: %s", port, error)
+            return False, f"Connection failed on {port}: {error!s}"
+        return True, (
+            f"Connection successful ({self.config.motor_type} @ "
+            f"{self.config.port}, {self.config.baudrate} baud)"
+        )
+
     def disconnect(self) -> tuple[bool, str]:
         """Disable torque (best-effort) and close the serial connection.
 

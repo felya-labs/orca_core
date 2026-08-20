@@ -12,7 +12,7 @@ import atexit
 import logging
 import threading
 import time
-from typing import Optional, Sequence, Tuple
+from typing import NamedTuple, Optional, Sequence, Tuple
 import numpy as np
 
 from ..constants import FEETECH
@@ -71,6 +71,14 @@ POS_MAX = 4095
 # convention; per-joint sign tuning (joint_to_motor_map) can then be shared
 # across motor types.
 POSITION_DIRECTION = -1
+
+
+class FeetechMotorIdentity(NamedTuple):
+    """One motor identity returned by a read-only protocol ping."""
+
+    motor_id: int
+    model_number: int
+    model_name: str
 
 
 def feetech_cleanup_handler():
@@ -303,6 +311,33 @@ class FeetechClient(MotorClient):
                     )
                 result_by_id[motor_id] = value != 0
         return result_by_id
+
+    def read_motor_inventory(self) -> tuple[FeetechMotorIdentity, ...]:
+        """Ping every configured motor and return its immutable identity.
+
+        A missing or errored response aborts the whole read so callers cannot
+        mistake a partial bus inventory for the configured hand. Ping is a
+        protocol read and does not modify motor registers.
+        """
+        self._check_connected()
+        inventory = []
+        with self._bus_lock:
+            for motor_id in self.motor_ids:
+                model_number, result, error = self.packet_handler.ping(motor_id)
+                if result != COMM_SUCCESS or error != 0:
+                    self._flush_input_buffer()
+                    raise OSError(
+                        f'Failed to identify motor {motor_id}: '
+                        f'result={result}, error={error}'
+                    )
+                inventory.append(FeetechMotorIdentity(
+                    motor_id=motor_id,
+                    model_number=model_number,
+                    model_name=FEETECH_MODELS.get(
+                        model_number, f'Unknown({model_number})'
+                    ),
+                ))
+        return tuple(inventory)
 
     @staticmethod
     def scan_for_motors(

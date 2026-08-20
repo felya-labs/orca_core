@@ -157,6 +157,7 @@ class FeetechClient(MotorClient):
         self._bus_lock = threading.RLock()
 
         self._connected = False
+        self._observe_only = False
 
         # Last known-good state per motor: a motor missing from a read keeps
         # its cached value and the read is reported via ``last_read_ok``.
@@ -180,6 +181,18 @@ class FeetechClient(MotorClient):
 
     def connect(self) -> None:
         """Connects to the Feetech motors."""
+        self._connect(observe_only=False)
+
+    def connect_observe_only(self) -> None:
+        """Open the bus without writing any motor register.
+
+        The resulting session permits register reads but rejects every public
+        write operation. Disconnect and interpreter-exit cleanup close the
+        serial port without changing torque state.
+        """
+        self._connect(observe_only=True)
+
+    def _connect(self, *, observe_only: bool) -> None:
         if self._connected:
             raise RuntimeError('Client is already connected.')
 
@@ -215,15 +228,16 @@ class FeetechClient(MotorClient):
 
                 self.packet_handler = sms_sts(self.port_handler)
                 self._connected = True
+                self._observe_only = observe_only
 
-                # Ensure motors are in servo mode (not wheel mode)
-                # This prevents issues if motors were left in wheel mode from a previous session
-                for motor_id in self.motor_ids:
-                    result, error = self.packet_handler.write1ByteTxRx(
-                        motor_id, SMS_STS_MODE, 0
-                    )
-                    if result != COMM_SUCCESS or error != 0:
-                        self._flush_input_buffer()
+                if not observe_only:
+                    # Ensure motors are in servo mode (not wheel mode).
+                    for motor_id in self.motor_ids:
+                        result, error = self.packet_handler.write1ByteTxRx(
+                            motor_id, SMS_STS_MODE, 0
+                        )
+                        if result != COMM_SUCCESS or error != 0:
+                            self._flush_input_buffer()
 
                 # Torque is left as-is: connecting must never make the hand
                 # stiffen or move. Callers opt in via enable_torque()/init_joints().
@@ -231,6 +245,7 @@ class FeetechClient(MotorClient):
                 self.OPEN_CLIENTS.add(self)
             except Exception:
                 self._connected = False
+                self._observe_only = False
                 try:
                     self.port_handler.closePort()
                 except Exception:
@@ -253,12 +268,41 @@ class FeetechClient(MotorClient):
 
         with self._bus_lock:
             try:
-                # Disable torque before disconnecting
-                self.set_torque_enabled(self.motor_ids, False, retries=0)
+                if not self._observe_only:
+                    # Disable torque before disconnecting a control session.
+                    self.set_torque_enabled(self.motor_ids, False, retries=0)
             finally:
                 self.port_handler.closePort()
                 self._connected = False
+                self._observe_only = False
                 self.OPEN_CLIENTS.discard(self)
+
+    @property
+    def observe_only(self) -> bool:
+        """Whether this connection rejects all motor-register writes."""
+        return self._connected and self._observe_only
+
+    def read_torque_enabled(self) -> dict[int, bool]:
+        """Read the torque-enable register for every configured motor.
+
+        Communication failures raise instead of returning a partial result so
+        callers cannot mistake an unknown output state for disabled torque.
+        """
+        self._check_connected()
+        result_by_id: dict[int, bool] = {}
+        with self._bus_lock:
+            for motor_id in self.motor_ids:
+                value, result, error = self.packet_handler.read1ByteTxRx(
+                    motor_id, SMS_STS_TORQUE_ENABLE
+                )
+                if result != COMM_SUCCESS or error != 0:
+                    self._flush_input_buffer()
+                    raise OSError(
+                        f'Failed to read torque state for motor {motor_id}: '
+                        f'result={result}, error={error}'
+                    )
+                result_by_id[motor_id] = value != 0
+        return result_by_id
 
     @staticmethod
     def scan_for_motors(
@@ -309,8 +353,8 @@ class FeetechClient(MotorClient):
         if not (0 <= new_id <= 253):
             logging.error("Invalid ID %d. Valid range is 0-253.", new_id)
             return False
+        self._check_write_allowed()
         try:
-            self._check_connected()
             with self._bus_lock:
                 self.set_torque_enabled([current_id], False, retries=0)
                 self.packet_handler.unLockEprom(current_id)
@@ -339,8 +383,8 @@ class FeetechClient(MotorClient):
                 list(FEETECH_BAUD_RATE_MAP.keys()),
             )
             return False
+        self._check_write_allowed()
         try:
-            self._check_connected()
             with self._bus_lock:
                 self.set_torque_enabled([motor_id], False, retries=0)
                 self.packet_handler.unLockEprom(motor_id)
@@ -381,7 +425,7 @@ class FeetechClient(MotorClient):
         Returns:
             A list of motor IDs that could not be set.
         """
-        self._check_connected()
+        self._check_write_allowed()
 
         with self._bus_lock:
             remaining_ids = list(motor_ids)
@@ -420,7 +464,7 @@ class FeetechClient(MotorClient):
         Motors that stay unreachable are logged and skipped after the finite
         default retries of :meth:`set_torque_enabled`.
         """
-        self._check_connected()
+        self._check_write_allowed()
 
         # Warn about unsupported modes (mode 5 is supported via torque parameter)
         unsupported_modes = {
@@ -664,7 +708,7 @@ class FeetechClient(MotorClient):
             motor_ids: Motor IDs to configure.
             currents: Desired current limits in mA. Mapped to torque (0-1000).
         """
-        self._check_connected()
+        self._check_write_allowed()
 
         if len(motor_ids) != len(currents):
             raise ValueError('motor_ids and currents must have the same length')
@@ -687,6 +731,14 @@ class FeetechClient(MotorClient):
             self.connect()
         if not self._connected:
             raise OSError('Must call connect() first.')
+
+    def _check_write_allowed(self) -> None:
+        """Reject register writes while an observe-only session owns the bus."""
+        self._check_connected()
+        if self._observe_only:
+            raise PermissionError(
+                'observe-only Feetech session rejects register writes'
+            )
 
     def _normalize_position(self, pos_raw: int) -> int:
         """Return signed position without modulo wrapping.
@@ -731,7 +783,7 @@ class FeetechClient(MotorClient):
             means the position frame was NOT shifted; callers must check
             and must not persist limits derived from an unshifted frame.
         """
-        self._check_connected()
+        self._check_write_allowed()
 
         # When POSITION_DIRECTION inverts the read frame, "upper" maps to low raw.
         if POSITION_DIRECTION < 0:
@@ -825,7 +877,7 @@ class FeetechClient(MotorClient):
             acc: Acceleration (0-254). Default 50.
             torque: Torque limit (0-1000). Default 500.
         """
-        self._check_connected()
+        self._check_write_allowed()
 
         if len(motor_ids) != len(positions):
             raise ValueError('motor_ids and positions must have the same length')

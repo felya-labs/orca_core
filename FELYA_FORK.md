@@ -90,6 +90,16 @@ second normalized offline lock export, including markers and dependency edges.
 GitHub Actions dependencies are pinned to full commit IDs. A hash establishes
 immutable selection, not publisher trust.
 
+## Observe-only Feetech sessions
+
+The low-level Feetech client exposes an explicit observe-only connection for
+the PATON read-only integration. It opens the configured serial bus without
+writing servo mode, closes without writing torque state, reads torque-enable
+state fail-closed, and rejects every public register-write operation while the
+session is active. Normal control sessions retain their existing mode setup and
+torque-disable cleanup. This API does not authorize hardware access; Hephaistos
+must still provide the machine-local port and enforce its own approval gates.
+
 ## Hardware boundary
 
 Automated tests must not require a serial device or enable outputs. Hardware

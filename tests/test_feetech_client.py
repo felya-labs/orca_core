@@ -63,6 +63,7 @@ class FakePacketHandler:
 
     def __init__(self, positions: dict[int, int]):
         self.positions = dict(positions)
+        self.torque_enabled = {motor_id: False for motor_id in positions}
         self.unavailable_ids: set[int] = set()
         self.sync_fails = False
         self.log: list[str] = []
@@ -88,6 +89,13 @@ class FakePacketHandler:
         if address == SMS_STS_PRESENT_POSITION_L:
             return self.positions[motor_id], COMM_SUCCESS, 0
         return 0, COMM_SUCCESS, 0
+
+    def read1ByteTxRx(self, motor_id, address):
+        self._record("read1")
+        if motor_id in self.unavailable_ids:
+            return 0, 1, 0
+        assert address == SMS_STS_TORQUE_ENABLE
+        return int(self.torque_enabled[motor_id]), COMM_SUCCESS, 0
 
     def write1ByteTxRx(self, motor_id, address, value):
         self._record("write1")
@@ -427,3 +435,89 @@ def test_connect_succeeds_when_flock_unavailable(monkeypatch):
     finally:
         feetech._connected = False
         FeetechClient.OPEN_CLIENTS.discard(feetech)
+
+
+def test_observe_only_connect_read_and_disconnect_never_write(monkeypatch):
+    handler = FakePacketHandler({1: 100, 2: 200})
+    handler.torque_enabled[2] = True
+    monkeypatch.setattr(feetech_client_module, "sms_sts", lambda port: handler)
+
+    feetech = FeetechClient(motor_ids=[1, 2], port="/dev/fake")
+    feetech.port_handler = FakeConnectPortHandler()
+    feetech.connect_observe_only()
+
+    assert feetech.observe_only is True
+    assert handler.log == []
+    assert feetech.read_torque_enabled() == {1: False, 2: True}
+    assert handler.log == ["read1", "read1"]
+
+    feetech.disconnect()
+    assert handler.log == ["read1", "read1"]
+    assert feetech.observe_only is False
+    assert feetech.port_handler.is_open is False
+
+
+def test_control_connect_and_disconnect_retain_existing_writes(monkeypatch):
+    handler = FakePacketHandler({1: 100, 2: 200})
+    monkeypatch.setattr(feetech_client_module, "sms_sts", lambda port: handler)
+    feetech = FeetechClient(motor_ids=[1, 2], port="/dev/fake")
+    feetech.port_handler = FakeConnectPortHandler()
+
+    feetech.connect()
+    assert handler.log == ["write1", "write1"]
+    assert feetech.observe_only is False
+
+    feetech.disconnect()
+    assert handler.log == ["write1", "write1", "write1", "write1"]
+    assert feetech.port_handler.is_open is False
+
+
+def test_observe_only_torque_read_fails_closed_on_partial_reply(client):
+    feetech, handler = client
+    feetech._observe_only = True
+    feetech.port_handler.ser = FakeSerial(handler.log)
+    handler.unavailable_ids = {2}
+
+    with pytest.raises(OSError, match="motor 2"):
+        feetech.read_torque_enabled()
+
+    assert handler.log == ["read1", "read1", "flush"]
+
+
+@pytest.mark.parametrize(
+    "operation",
+    [
+        lambda client: client.set_torque_enabled([1], False),
+        lambda client: client.set_operating_mode([1], 0),
+        lambda client: client.change_motor_id(1, 2),
+        lambda client: client.change_motor_baudrate(1, 500_000),
+        lambda client: client.write_desired_pos([1], np.array([0.0])),
+        lambda client: client.write_desired_current([1], np.array([100.0])),
+        lambda client: client.calibrate_offset(1),
+        lambda client: client.write_positions_sync([1], np.array([0.0])),
+    ],
+)
+def test_observe_only_session_rejects_every_public_write(client, operation):
+    feetech, handler = client
+    feetech._observe_only = True
+
+    with pytest.raises(PermissionError, match="observe-only"):
+        operation(feetech)
+
+    assert not any(
+        item.startswith("write") or item == "ofs_cal" for item in handler.log
+    )
+
+
+def test_exit_cleanup_preserves_observe_only_no_write_contract(monkeypatch):
+    handler = FakePacketHandler({1: 100})
+    monkeypatch.setattr(feetech_client_module, "sms_sts", lambda port: handler)
+    feetech = FeetechClient(motor_ids=[1], port="/dev/fake")
+    feetech.port_handler = FakeConnectPortHandler()
+    feetech.connect_observe_only()
+
+    FeetechClient.cleanup_open_clients()
+
+    assert handler.log == []
+    assert feetech.port_handler.is_open is False
+    assert feetech not in FeetechClient.OPEN_CLIENTS

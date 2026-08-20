@@ -2,9 +2,9 @@
   "schemaVersion": 1,
   "subject": {
     "purl": "pkg:pypi/felya-orca-core@0.4.1.post1.dev0",
-    "reviewedSourceCommit": "559bb6916c5c8e093b180e2832b449318d50c324",
-    "uvLockSha256": "e9a2494770d25f2a74f9016f16f0ffcbb05b10791e2b833747ea20d0b21c9ad3",
-    "pyprojectSha256": "fa2290b1068baf562204339062ea2e1b38f1a72f745447e5f1bc5c188658896b"
+    "reviewedSourceCommit": "b721c6c290ee3a9727ddab18eef477f9896e572b",
+    "uvLockSha256": "d1b40d254af0db23ec1bb095871797e0bb8628f8b5b31f1f37f8419f04efcbbc",
+    "pyprojectSha256": "9d0dd40e84afdf701ddc3d8635c756c2e4961e85b5828d8ce3bcdfaf98d2d137"
   },
   "evidence": [
     {
@@ -73,7 +73,20 @@
   ],
   "buildToolchain": {
     "directRequirements": ["hatchling==1.32.0"],
-    "closureStatus": "incomplete",
+    "closureStatus": "locked-unretained",
+    "constraints": {
+      "path": "compliance/build-toolchain-constraints.txt",
+      "sha256": "f984aacebc0659781eadc0111113092624aea48c4a782c79c2a23e56eb8a460e"
+    },
+    "components": [
+      {"name": "hatchling", "version": "1.32.0", "marker": null, "conclusion": "NOASSERTION"},
+      {"name": "packaging", "version": "26.0", "marker": null, "conclusion": "NOASSERTION"},
+      {"name": "pathspec", "version": "1.0.4", "marker": null, "conclusion": "NOASSERTION"},
+      {"name": "pluggy", "version": "1.6.0", "marker": null, "conclusion": "NOASSERTION"},
+      {"name": "tomli", "version": "2.4.1", "marker": "python_full_version < '3.11'", "conclusion": "NOASSERTION"},
+      {"name": "tomlkit", "version": "0.15.1", "marker": null, "conclusion": "NOASSERTION"},
+      {"name": "trove-classifiers", "version": "2026.6.1.19", "marker": null, "conclusion": "NOASSERTION"}
+    ],
     "conclusion": "NOASSERTION"
   },
   "review": {

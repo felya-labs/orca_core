@@ -35,10 +35,26 @@
     "buildToolchain": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["directRequirements", "closureStatus", "conclusion"],
+      "required": ["directRequirements", "closureStatus", "constraints", "components", "conclusion"],
       "properties": {
         "directRequirements": {"type": "array", "minItems": 1, "items": {"type": "string"}},
-        "closureStatus": {"const": "incomplete"},
+        "closureStatus": {"const": "locked-unretained"},
+        "constraints": {"$ref": "#/$defs/file"},
+        "components": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "version", "marker", "conclusion"],
+            "properties": {
+              "name": {"type": "string"},
+              "version": {"type": "string"},
+              "marker": {"type": ["string", "null"]},
+              "conclusion": {"const": "NOASSERTION"}
+            }
+          }
+        },
         "conclusion": {"const": "NOASSERTION"}
       }
     },

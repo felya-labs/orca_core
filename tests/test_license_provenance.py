@@ -75,6 +75,13 @@ def test_third_party_sources_remain_noassertion() -> None:
         lambda value: value["sourceSurfaces"][1]["files"].pop(),
         lambda value: value["sourceSurfaces"][0]["files"][0].update({"sha256": "0" * 64}),
         lambda value: value["buildToolchain"].update({"closureStatus": "complete"}),
+        lambda value: value["buildToolchain"]["components"].pop(),
+        lambda value: value["buildToolchain"]["components"][0].update(
+            {"conclusion": "MIT"}
+        ),
+        lambda value: value["buildToolchain"]["constraints"].update(
+            {"sha256": "0" * 64}
+        ),
         lambda value: value["review"].update({"releaseEligible": True}),
         lambda value: value["review"]["openBlockers"].pop(),
     ],

@@ -12,6 +12,19 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+try:
+    from tools.validate_build_toolchain import (
+        CONSTRAINTS_PATH,
+        BuildToolchainError,
+        parse_constraints,
+    )
+except ModuleNotFoundError:  # Direct `python tools/...` execution.
+    from validate_build_toolchain import (  # type: ignore[no-redef]
+        CONSTRAINTS_PATH,
+        BuildToolchainError,
+        parse_constraints,
+    )
+
 ROOT = Path(__file__).resolve().parents[1]
 LEDGER_PATH = ROOT / "compliance/license-provenance-review.v1.json"
 FULL_SHA = set("0123456789abcdef")
@@ -22,7 +35,7 @@ EXPECTED_BLOCKERS = {
     "runtime-license-review",
     "vendored-feetech-provenance",
 }
-EXPECTED_REVIEWED_SOURCE_COMMIT = "559bb6916c5c8e093b180e2832b449318d50c324"
+EXPECTED_REVIEWED_SOURCE_COMMIT = "b721c6c290ee3a9727ddab18eef477f9896e572b"
 EXPECTED_FEETECH = {
     path.as_posix()
     for path in (ROOT / "orca_core/hardware/feetech").glob("*.py")
@@ -198,9 +211,42 @@ def validate_ledger(ledger: dict[str, Any], sbom: dict[str, Any]) -> None:
     if feetech["classification"] != "vendored-third-party" or feetech["declaredLicense"] != "NOASSERTION" or feetech_paths != _tracked_feetech_files() or feetech_paths != EXPECTED_FEETECH:
         raise LedgerError("vendored Feetech inventory must exactly cover tracked Python sources")
 
-    build = _exact_keys(ledger["buildToolchain"], {"directRequirements", "closureStatus", "conclusion"}, "build toolchain")
-    if build != {"directRequirements": _build_requirements(), "closureStatus": "incomplete", "conclusion": "NOASSERTION"}:
-        raise LedgerError("build-toolchain closure must remain exact and incomplete")
+    build = _exact_keys(
+        ledger["buildToolchain"],
+        {"directRequirements", "closureStatus", "constraints", "components", "conclusion"},
+        "build toolchain",
+    )
+    constraint_reference = _exact_keys(
+        build["constraints"], {"path", "sha256"}, "build constraints"
+    )
+    if constraint_reference["path"] != "compliance/build-toolchain-constraints.txt":
+        raise LedgerError("build constraints path must be exact")
+    _repo_file(
+        constraint_reference["path"],
+        constraint_reference["sha256"],
+        "build constraints",
+    )
+    try:
+        locked = parse_constraints(CONSTRAINTS_PATH.read_bytes())
+    except BuildToolchainError as error:
+        raise LedgerError("build constraints are invalid") from error
+    expected_components = [
+        {
+            "name": name,
+            "version": record["version"],
+            "marker": record["marker"],
+            "conclusion": "NOASSERTION",
+        }
+        for name, record in sorted(locked.items())
+    ]
+    if build != {
+        "directRequirements": _build_requirements(),
+        "closureStatus": "locked-unretained",
+        "constraints": constraint_reference,
+        "components": expected_components,
+        "conclusion": "NOASSERTION",
+    }:
+        raise LedgerError("build-toolchain closure must remain locked, unretained, and NOASSERTION")
 
     review = _exact_keys(ledger["review"], {"status", "releaseEligible", "openBlockers"}, "review")
     if review["status"] != "incomplete" or review["releaseEligible"] is not False or set(review["openBlockers"]) != EXPECTED_BLOCKERS or len(review["openBlockers"]) != len(EXPECTED_BLOCKERS):

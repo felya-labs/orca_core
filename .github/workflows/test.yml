@@ -24,7 +24,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          uv sync --group dev
+          uv sync --locked --group dev --group build
 
       - name: Run Tests
         run: |
@@ -33,10 +33,30 @@ jobs:
       - name: Derive reproducible build timestamp from source commit
         run: echo "SOURCE_DATE_EPOCH=$(git show -s --format=%ct HEAD)" >> "$GITHUB_ENV"
 
+      - name: Validate and hydrate locked build toolchain
+        run: |
+          uv lock --check --offline
+          uv run --no-sync python tools/validate_build_toolchain.py
+          python -m pip download \
+            --require-hashes \
+            --only-binary=:all: \
+            --dest build/build-wheelhouse \
+            --requirement compliance/build-toolchain-constraints.txt
+
       - name: Build reproducible release candidate twice
         run: |
-          uv build --wheel --out-dir build/candidate-a
-          uv build --wheel --out-dir build/candidate-b
+          uv build --wheel --offline --no-index \
+            --find-links build/build-wheelhouse \
+            --cache-dir build/empty-cache-a \
+            --build-constraints compliance/build-toolchain-constraints.txt \
+            --require-hashes \
+            --out-dir build/candidate-a
+          uv build --wheel --offline --no-index \
+            --find-links build/build-wheelhouse \
+            --cache-dir build/empty-cache-b \
+            --build-constraints compliance/build-toolchain-constraints.txt \
+            --require-hashes \
+            --out-dir build/candidate-b
           cmp build/candidate-a/*.whl build/candidate-b/*.whl
           uv run --no-sync python tools/verify_release_candidate.py \
             build/candidate-a/*.whl \

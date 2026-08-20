@@ -69,6 +69,7 @@ ORCA_HAND = BASE_HAND | {
     "calibrated",
     "calibration",
     "connect",
+    "connect_explicit",
     "disable_torque",
     "disconnect",
     "enable_torque",

@@ -358,6 +358,72 @@ def test_non_interactive_connect_skips_port_picker(mock_hand, monkeypatch):
     assert "no motor responded" in msg
 
 
+def test_explicit_connect_uses_only_configured_port(mock_hand, monkeypatch):
+    """The owning runtime can prohibit every discovery and picker fallback."""
+    import orca_core.hardware_hand as hardware_hand
+
+    mock_hand.config = dataclasses.replace(mock_hand.config, port="/dev/cu.explicit")
+    attempted = []
+
+    def fail_attempt(self, port, base_config=None):
+        attempted.append(port)
+        return ConnectionError("no motor responded")
+
+    monkeypatch.setattr(OrcaHand, "_try_port", fail_attempt)
+    monkeypatch.setattr(
+        hardware_hand,
+        "auto_detect_port",
+        lambda *a, **k: (_ for _ in ()).throw(AssertionError("discovery invoked")),
+    )
+    monkeypatch.setattr(
+        hardware_hand,
+        "find_single_usb_serial_port",
+        lambda: (_ for _ in ()).throw(AssertionError("USB fallback invoked")),
+    )
+    monkeypatch.setattr(
+        hardware_hand,
+        "get_and_choose_port",
+        lambda: (_ for _ in ()).throw(AssertionError("picker invoked")),
+    )
+
+    success, msg = OrcaHand.connect_explicit(mock_hand)
+
+    assert not success
+    assert "no motor responded" in msg
+    assert attempted == [mock_hand.config.port]
+
+
+def test_explicit_connect_rejects_auto_before_hardware(mock_hand, monkeypatch):
+    mock_hand.config = dataclasses.replace(mock_hand.config, port="auto")
+    monkeypatch.setattr(
+        OrcaHand,
+        "_try_port",
+        lambda *a, **k: (_ for _ in ()).throw(AssertionError("port opened")),
+    )
+
+    success, msg = OrcaHand.connect_explicit(mock_hand)
+
+    assert not success
+    assert "configured port" in msg
+
+
+def test_explicit_connect_reports_exact_success(mock_hand, monkeypatch):
+    mock_hand.config = dataclasses.replace(mock_hand.config, port="/dev/cu.explicit")
+    attempted = []
+
+    def succeed(self, port, base_config=None):
+        attempted.append(port)
+        return None
+
+    monkeypatch.setattr(OrcaHand, "_try_port", succeed)
+
+    success, msg = OrcaHand.connect_explicit(mock_hand)
+
+    assert success
+    assert attempted == [mock_hand.config.port]
+    assert mock_hand.config.port in msg
+
+
 def test_failed_connect_restores_config(mock_hand, monkeypatch):
     """A failed connect() must not leave probed driver values in the config,
     so the next connect() re-probes and can still persist to yaml."""

@@ -96,3 +96,7 @@ baudrate: 1000000       # 1M for v2; 3M for v1
 motor_type: dynamixel   # or 'feetech'
 ```
 
+Owning runtimes that must prohibit discovery and fallback can call
+`hand.connect_explicit()` after supplying a concrete `port`. The method rejects
+`port: auto` and tries only the configured motor port; it never scans USB,
+tries an alternative adapter, or opens an interactive picker.

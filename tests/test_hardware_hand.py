@@ -2,12 +2,14 @@ import dataclasses
 import logging
 import os
 import shutil
+import threading
 
 import numpy as np
 import pytest
 from orca_core import MockOrcaHand, OrcaHand
 from orca_core.calibration import JointEncoderCal
 from orca_core.hardware.sensing.constants import AUTO_ENC_NUM_JOINTS
+from orca_core.hardware_hand import _PositionWriteProfile
 from orca_core.utils import read_yaml
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -103,6 +105,159 @@ def test_interpolated_sparse_joint_command_writes_only_selected_motor(
 
     assert writes
     assert all(motor_ids == (selected,) for motor_ids in writes)
+
+
+def test_calibration_profile_applies_to_every_position_write(mock_hand, monkeypatch):
+    selected = mock_hand.config.joint_to_motor_map["index_mcp"]
+    profiled_writes = []
+
+    def profiled(motor_ids, positions, *, speed, acceleration, torque):
+        profiled_writes.append((tuple(motor_ids), speed, acceleration, torque))
+        return []
+
+    def unprofiled(*args, **kwargs):
+        raise AssertionError("calibration used an unprofiled position write")
+
+    monkeypatch.setattr(mock_hand.motor_client, "write_desired_pos_profiled", profiled)
+    monkeypatch.setattr(mock_hand.motor_client, "write_desired_pos", unprofiled)
+    monkeypatch.setattr(mock_hand.motor_client, "supports_profiled_position_writes", True)
+
+    mock_hand.calibrate(
+        joints=["index_mcp"],
+        persist=False,
+        step_timeout_s=2.0,
+        profile_speed=10,
+        profile_acceleration=5,
+        profile_torque=300,
+    )
+
+    assert profiled_writes
+    assert all(write == ((selected,), 10, 5, 300) for write in profiled_writes)
+    assert mock_hand._position_write_profile is None
+
+
+@pytest.mark.parametrize(
+    "profile, message",
+    [
+        ((10, None, 300), "requires speed, acceleration, and torque"),
+        ((0, 5, 300), "profile_speed"),
+        ((10, 255, 300), "profile_acceleration"),
+        ((10, 5, 0), "profile_torque"),
+    ],
+)
+def test_calibration_profile_rejects_incomplete_or_invalid_values(
+    mock_hand, profile, message
+):
+    with pytest.raises(ValueError, match=message):
+        mock_hand.calibrate(
+            joints=["index_mcp"],
+            profile_speed=profile[0],
+            profile_acceleration=profile[1],
+            profile_torque=profile[2],
+        )
+
+
+def test_profiled_write_failure_is_not_silently_accepted(mock_hand, monkeypatch):
+    selected = mock_hand.config.joint_to_motor_map["index_mcp"]
+    monkeypatch.setattr(mock_hand.motor_client, "supports_profiled_position_writes", True)
+    monkeypatch.setattr(
+        mock_hand.motor_client,
+        "write_desired_pos_profiled",
+        lambda *args, **kwargs: [selected],
+    )
+    with pytest.raises(RuntimeError, match=str(selected)):
+        mock_hand.calibrate(
+            joints=["index_mcp"],
+            persist=False,
+            step_timeout_s=2.0,
+            profile_speed=10,
+            profile_acceleration=5,
+            profile_torque=300,
+        )
+    assert mock_hand._position_write_profile is None
+    assert not mock_hand.motor_client._torque_enabled[selected]
+
+
+def test_unsupported_profile_is_rejected_before_motor_io(mock_hand, monkeypatch):
+    calls = []
+    for method in ("set_operating_mode", "write_desired_current", "set_torque_enabled"):
+        original = getattr(mock_hand.motor_client, method)
+
+        def traced(*args, _method=method, _original=original, **kwargs):
+            calls.append(_method)
+            return _original(*args, **kwargs)
+
+        monkeypatch.setattr(mock_hand.motor_client, method, traced)
+
+    with pytest.raises(RuntimeError, match="lacks profiled"):
+        mock_hand.calibrate(
+            joints=["index_mcp"],
+            profile_speed=10,
+            profile_acceleration=5,
+            profile_torque=300,
+        )
+    assert calls == []
+
+
+@pytest.mark.parametrize("acknowledgement", [None, "", [999], [3, 3]])
+def test_profiled_write_requires_exact_acknowledgement(
+    mock_hand, monkeypatch, acknowledgement
+):
+    selected = mock_hand.config.joint_to_motor_map["index_mcp"]
+    monkeypatch.setattr(mock_hand.motor_client, "supports_profiled_position_writes", True)
+    monkeypatch.setattr(
+        mock_hand.motor_client,
+        "write_desired_pos_profiled",
+        lambda *args, **kwargs: acknowledgement,
+    )
+    with pytest.raises(RuntimeError, match="acknowledgement"):
+        mock_hand.calibrate(
+            joints=["index_mcp"],
+            persist=False,
+            step_timeout_s=2.0,
+            profile_speed=10,
+            profile_acceleration=5,
+            profile_torque=300,
+        )
+    assert mock_hand._position_write_profile is None
+    assert not mock_hand.motor_client._torque_enabled[selected]
+
+
+def test_profiled_calibration_rejects_async_mode(mock_hand, monkeypatch):
+    monkeypatch.setattr(mock_hand.motor_client, "supports_profiled_position_writes", True)
+    with pytest.raises(ValueError, match="blocking=True"):
+        mock_hand.calibrate(
+            blocking=False,
+            joints=["index_mcp"],
+            profile_speed=10,
+            profile_acceleration=5,
+            profile_torque=300,
+        )
+    assert not mock_hand.task_running
+
+
+def test_active_calibration_profile_rejects_concurrent_and_unselected_writes(
+    mock_hand, monkeypatch
+):
+    selected = mock_hand.config.joint_to_motor_map["index_mcp"]
+    other = mock_hand.config.joint_to_motor_map["wrist"]
+    writes = []
+    monkeypatch.setattr(
+        mock_hand.motor_client,
+        "write_desired_pos_profiled",
+        lambda *args, **kwargs: writes.append((args, kwargs)) or [],
+    )
+    mock_hand._position_write_profile = _PositionWriteProfile(
+        10, 5, 300, frozenset({selected}), -1
+    )
+    with pytest.raises(RuntimeError, match="concurrent"):
+        mock_hand._set_motor_pos({selected: 0.01})
+    mock_hand._position_write_profile = _PositionWriteProfile(
+        10, 5, 300, frozenset({selected}), threading.get_ident()
+    )
+    with pytest.raises(RuntimeError, match="unselected"):
+        mock_hand._set_motor_pos({other: 0.01})
+    assert writes == []
 
 
 def test_disconnect_disables_torque_and_discards_client(mock_hand):

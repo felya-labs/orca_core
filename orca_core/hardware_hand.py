@@ -54,6 +54,15 @@ MOCK_JOINT_TO_MOTOR_RATIO = 0.007
 logger = logging.getLogger(__name__)
 
 
+@dataclasses.dataclass(frozen=True)
+class _PositionWriteProfile:
+    speed: int
+    acceleration: int
+    torque: int
+    motor_ids: frozenset[int]
+    owner_thread_id: int
+
+
 class OrcaHand(BaseHand):
     """ORCA hand class.
 
@@ -101,6 +110,8 @@ class OrcaHand(BaseHand):
         self._motor_client: MotorClient = None
         self._motor_lock: RLock = RLock()
         self._uncalibrated_warned: set = set()
+        self._position_write_profile: _PositionWriteProfile | None = None
+        self._position_write_profile_lock = threading.Lock()
 
         self._task_thread: threading.Thread = None
         self._task_stop_event = threading.Event()
@@ -783,6 +794,9 @@ class OrcaHand(BaseHand):
         progress_callback=None,
         persist: bool | None = None,
         step_timeout_s: float | None = None,
+        profile_speed: int | None = None,
+        profile_acceleration: int | None = None,
+        profile_torque: int | None = None,
     ):
         """Run the joint calibration routine.
 
@@ -817,7 +831,17 @@ class OrcaHand(BaseHand):
                 aborts calibration and releases torque, but cannot interrupt a
                 blocked driver call. Safety runtimes should provide this value
                 together with an outer hard process deadline.
+            profile_speed/profile_acceleration/profile_torque: Optional native
+                write profile. All three values are required together. When
+                supplied, every calibration position write, including the
+                return interpolation, uses the motor client's acknowledged
+                profiled-write path instead of its default speed.
         """
+        profile = self._validate_position_write_profile(
+            profile_speed, profile_acceleration, profile_torque
+        )
+        if profile is not None and not blocking:
+            raise ValueError("profiled calibration currently requires blocking=True")
         if persist is None:
             persist = self._persist_calibration
         if blocking:
@@ -829,6 +853,7 @@ class OrcaHand(BaseHand):
                 progress_callback=progress_callback,
                 persist=persist,
                 step_timeout_s=step_timeout_s,
+                position_write_profile=profile,
             )
         else:
             self._start_task(
@@ -839,22 +864,84 @@ class OrcaHand(BaseHand):
                 progress_callback=progress_callback,
                 persist=persist,
                 step_timeout_s=step_timeout_s,
+                position_write_profile=profile,
             )
 
     def _calibrate_and_apply(self, **kwargs):
         """Run the calibration routine and apply a completed result."""
-        result = run_calibration(
-            self, should_stop=self._task_stop_event.is_set, **kwargs
+        profile = kwargs.pop("position_write_profile", None)
+        joints = kwargs.get("joints")
+        motor_ids = (
+            frozenset(self.config.motor_ids)
+            if joints is None
+            else frozenset(self.config.joint_to_motor_map[joint] for joint in joints)
         )
+        active_profile = (
+            None
+            if profile is None
+            else _PositionWriteProfile(
+                *profile,
+                motor_ids=motor_ids,
+                owner_thread_id=threading.get_ident(),
+            )
+        )
+        with self._position_write_profile_lock:
+            if self._position_write_profile is not None:
+                raise RuntimeError("another profiled calibration already owns the hand")
+            self._position_write_profile = active_profile
+        try:
+            result = run_calibration(
+                self, should_stop=self._task_stop_event.is_set, **kwargs
+            )
+        finally:
+            with self._position_write_profile_lock:
+                self._position_write_profile = None
         if result is not None:
             self.calibration = result
+
+    def _validate_position_write_profile(
+        self,
+        speed: int | None,
+        acceleration: int | None,
+        torque: int | None,
+    ) -> tuple[int, int, int] | None:
+        values = (speed, acceleration, torque)
+        if values == (None, None, None):
+            return None
+        if any(value is None for value in values):
+            raise ValueError(
+                "calibration write profile requires speed, acceleration, and torque"
+            )
+        assert speed is not None and acceleration is not None and torque is not None
+        if (
+            isinstance(speed, bool)
+            or not isinstance(speed, int)
+            or not 1 <= speed <= 32766
+        ):
+            raise ValueError("profile_speed must be an integer inside [1, 32766]")
+        if (
+            isinstance(acceleration, bool)
+            or not isinstance(acceleration, int)
+            or not 0 <= acceleration <= 254
+        ):
+            raise ValueError("profile_acceleration must be an integer inside [0, 254]")
+        if (
+            isinstance(torque, bool)
+            or not isinstance(torque, int)
+            or not 1 <= torque <= 1000
+        ):
+            raise ValueError("profile_torque must be an integer inside [1, 1000]")
+        client = self.motor_client
+        if client is None or client.supports_profiled_position_writes is not True:
+            raise RuntimeError("connected motor client lacks profiled position writes")
+        return speed, acceleration, torque
 
     def set_neutral_position(self, num_steps: int = NUM_STEPS, step_size: float = STEP_SIZE):
         control_mode = self.config.control_mode
         self.set_control_mode(POSITION)
         super().set_neutral_position(num_steps, step_size)
         self.set_control_mode(control_mode)
-    
+
     def _read_motor_pos_for_offsets(self, retries: int = 5, retry_interval: float = 0.05):
         """Read motor positions for wrap-offset detection, rejecting a read the
         bus never actually answered.
@@ -997,7 +1084,40 @@ class OrcaHand(BaseHand):
             else:
                 raise ValueError("desired_pos must be a dict, np.ndarray, or list.")
 
-            self._motor_client.write_desired_pos(motor_ids_to_write, positions_to_write)
+            profile = self._position_write_profile
+            if profile is None:
+                self._motor_client.write_desired_pos(
+                    motor_ids_to_write, positions_to_write
+                )
+            else:
+                if profile.owner_thread_id != threading.get_ident():
+                    raise RuntimeError(
+                        "calibration profile rejects a concurrent position write"
+                    )
+                if not set(motor_ids_to_write).issubset(profile.motor_ids):
+                    raise RuntimeError(
+                        "calibration profile rejects an unselected motor write"
+                    )
+                failed_ids = self._motor_client.write_desired_pos_profiled(
+                    motor_ids_to_write,
+                    positions_to_write,
+                    speed=profile.speed,
+                    acceleration=profile.acceleration,
+                    torque=profile.torque,
+                )
+                if (
+                    not isinstance(failed_ids, list)
+                    or any(type(motor_id) is not int for motor_id in failed_ids)
+                    or len(failed_ids) != len(set(failed_ids))
+                    or not set(failed_ids).issubset(motor_ids_to_write)
+                ):
+                    raise RuntimeError(
+                        "profiled position write acknowledgement is invalid"
+                    )
+                if failed_ids:
+                    raise RuntimeError(
+                        f"profiled position write failed for motor IDs {failed_ids}"
+                    )
 
     def _warn_uncalibrated(self, motor_id: int, joint_name: str, missing: str) -> None:
         """Warn once per motor about missing calibration data (reads can run at loop rate)."""

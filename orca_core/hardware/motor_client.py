@@ -39,6 +39,7 @@ class MotorRead(NamedTuple):
 
 
 class MotorClient(ABC):
+    supports_profiled_position_writes = False
     """Abstract base class for motor communication clients.
 
     This defines the interface that all motor clients (Dynamixel, Feetech, etc.)

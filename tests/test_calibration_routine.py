@@ -318,6 +318,32 @@ def test_single_joint_abort_cleanup_writes_only_selected_motor(
     assert all(motor_ids == (selected,) for _, motor_ids in writes)
 
 
+def test_abort_cleanup_attempts_torque_disable_when_current_restore_fails(
+    connected_hand, monkeypatch
+):
+    hand = connected_hand
+    selected = hand.config.joint_to_motor_map["index_mcp"]
+    disabled = []
+    events = []
+
+    def failed_current(*args, **kwargs):
+        raise RuntimeError("current bus failure")
+
+    def traced_disable(motor_ids=None):
+        disabled.append(tuple(motor_ids or ()))
+        return []
+
+    monkeypatch.setattr(hand, "set_max_current", failed_current)
+    monkeypatch.setattr(hand, "disable_torque", traced_disable)
+
+    calibration_routine._release_after_abort(hand, [selected], events.append)
+
+    assert disabled == [(selected,)]
+    assert events == [
+        {"event": "cleanup_failed", "error": "current restore failed: current bus failure"}
+    ]
+
+
 def test_calibration_rejects_unknown_or_empty_joint_scope(connected_hand):
     with pytest.raises(ValueError, match="Unknown calibration joints"):
         calibration_routine.run_calibration(

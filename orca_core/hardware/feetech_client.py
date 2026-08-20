@@ -87,6 +87,7 @@ def feetech_cleanup_handler():
 
 
 class FeetechClient(MotorClient):
+    supports_profiled_position_writes = True
     """Client for communicating with Feetech SCServo motors.
 
     This implements the MotorClient interface for Feetech motors,

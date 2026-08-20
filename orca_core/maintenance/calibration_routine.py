@@ -168,12 +168,19 @@ def _release_after_abort(
 ) -> None:
     """Release torque and restore the configured current limit so the hand
     doesn't strain against a hardstop after an abnormal exit."""
+    failures = []
     try:
         hand.set_max_current(hand.config.max_current, motor_ids=motor_ids)
+    except Exception as error:
+        failures.append(f"current restore failed: {error}")
+    try:
         hand.disable_torque(motor_ids)
-    except Exception as e:
-        _emit(progress_callback, "cleanup_failed", error=str(e))
-        logger.warning("cleanup after aborted calibration failed: %s", e)
+    except Exception as error:
+        failures.append(f"torque disable failed: {error}")
+    if failures:
+        detail = "; ".join(failures)
+        _emit(progress_callback, "cleanup_failed", error=detail)
+        logger.warning("cleanup after aborted calibration failed: %s", detail)
 
 
 def _selected_motor_ids(hand: "OrcaHand", joints: list[str] | None) -> list[int]:

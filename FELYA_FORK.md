@@ -121,3 +121,12 @@ errors for each selected motor. It rejects missing, duplicate, unknown,
 non-finite, or out-of-range inputs before bus I/O and remains unavailable in an
 observe-only session. The raw profile ranges are device capabilities, not a
 generic safety policy; Hephaistos must impose its narrower runtime limits.
+
+Calibration accepts that native write profile only when speed, acceleration,
+and torque are supplied together and validated before the routine starts. The
+profile applies to hard-stop increments and the interpolated return, is restored
+after success or failure, and fails closed when the connected motor client lacks
+the acknowledged profiled-write contract. This does not make calibration safe
+by itself: current policy, per-step and outer deadlines, exact joint selection,
+operator authorization, and physical observation remain the integrator's
+responsibility.

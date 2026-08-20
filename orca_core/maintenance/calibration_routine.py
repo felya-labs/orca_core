@@ -143,6 +143,7 @@ def run_calibration(
         should_stop = lambda: False  # noqa: E731
 
     result = None
+    selected_motor_ids = _selected_motor_ids(hand, joints)
     try:
         result = _drive_calibration(
             hand,
@@ -156,21 +157,39 @@ def run_calibration(
         )
     finally:
         if result is None:
-            _release_after_abort(hand, progress_callback)
+            _release_after_abort(hand, selected_motor_ids, progress_callback)
     return result
 
 
 def _release_after_abort(
-    hand: "OrcaHand", progress_callback: Optional[ProgressCallback] = None
+    hand: "OrcaHand",
+    motor_ids: list[int],
+    progress_callback: Optional[ProgressCallback] = None,
 ) -> None:
     """Release torque and restore the configured current limit so the hand
     doesn't strain against a hardstop after an abnormal exit."""
     try:
-        hand.set_max_current(hand.config.max_current)
-        hand.disable_torque()
+        hand.set_max_current(hand.config.max_current, motor_ids=motor_ids)
+        hand.disable_torque(motor_ids)
     except Exception as e:
         _emit(progress_callback, "cleanup_failed", error=str(e))
         logger.warning("cleanup after aborted calibration failed: %s", e)
+
+
+def _selected_motor_ids(hand: "OrcaHand", joints: list[str] | None) -> list[int]:
+    """Return the exact motor write scope for a calibration request."""
+    if joints is None:
+        return list(hand.config.motor_ids)
+    unknown = set(joints) - set(hand.config.joint_to_motor_map)
+    if unknown:
+        raise ValueError(f"Unknown calibration joints: {sorted(unknown)}")
+    selected = {hand.config.joint_to_motor_map[joint] for joint in joints}
+    motor_ids = [
+        motor_id for motor_id in hand.config.motor_ids if motor_id in selected
+    ]
+    if not motor_ids:
+        raise ValueError("Calibration requires at least one selected joint")
+    return motor_ids
 
 
 def _build_calibration_result(
@@ -324,6 +343,7 @@ def _drive_calibration(
         )
         calibration_sequence = filtered
 
+    selected_motor_ids = _selected_motor_ids(hand, joints)
     # motor_limits commits only once both directions land for a joint;
     # pending_limits holds the in-flight half so partial runs keep old values.
     motor_limits = {
@@ -365,8 +385,10 @@ def _drive_calibration(
 
     calibrated_joints: dict = {}
 
-    hand.set_control_mode(CURRENT_BASED_POSITION)
-    hand.set_max_current(hand.config.calibration_current)
+    hand.set_control_mode(CURRENT_BASED_POSITION, motor_ids=selected_motor_ids)
+    hand.set_max_current(
+        hand.config.calibration_current, motor_ids=selected_motor_ids
+    )
 
     _emit(
         progress_callback,
@@ -381,7 +403,7 @@ def _drive_calibration(
             if step_timeout_s is not None
             else None
         )
-        hand.disable_torque()
+        hand.disable_torque(selected_motor_ids)
 
         if should_stop():
             _emit(progress_callback, "calibration_aborted")
@@ -415,7 +437,8 @@ def _drive_calibration(
             hand.set_max_current(
                 hand.config.calibration_current
                 if joint != WRIST
-                else hand.config.wrist_calibration_current
+                else hand.config.wrist_calibration_current,
+                motor_ids=[motor_id],
             )
 
             sign = 1 if direction == FLEX else -1
@@ -686,7 +709,7 @@ def _drive_calibration(
             calibrated_joints, num_steps=NUM_STEPS, step_size=STEP_SIZE
         )
 
-    hand.set_max_current(hand.config.max_current)
+    hand.set_max_current(hand.config.max_current, motor_ids=selected_motor_ids)
 
     _emit(progress_callback, "calibration_done")
     return final_result

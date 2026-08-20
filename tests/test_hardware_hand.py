@@ -64,6 +64,47 @@ def test_set_max_current_supports_scalar_and_list(mock_hand):
         assert mock_hand._motor_client._cur[motor_id] == desired
 
 
+def test_set_max_current_can_be_scoped_to_one_motor(mock_hand):
+    selected = mock_hand.config.joint_to_motor_map["index_mcp"]
+    before = dict(mock_hand._motor_client._cur)
+
+    mock_hand.set_max_current(300.0, motor_ids=[selected])
+
+    assert mock_hand._motor_client._cur[selected] == 300.0
+    assert {
+        motor_id: current
+        for motor_id, current in mock_hand._motor_client._cur.items()
+        if motor_id != selected
+    } == {
+        motor_id: current
+        for motor_id, current in before.items()
+        if motor_id != selected
+    }
+
+
+def test_set_max_current_rejects_unknown_motor(mock_hand):
+    with pytest.raises(ValueError, match="Invalid motor IDs"):
+        mock_hand.set_max_current(300.0, motor_ids=[999])
+
+
+def test_interpolated_sparse_joint_command_writes_only_selected_motor(
+    mock_hand, monkeypatch
+):
+    selected = mock_hand.config.joint_to_motor_map["index_mcp"]
+    writes = []
+    original = mock_hand.motor_client.write_desired_pos
+
+    def traced(motor_ids, positions):
+        writes.append(tuple(motor_ids))
+        return original(motor_ids, positions)
+
+    monkeypatch.setattr(mock_hand.motor_client, "write_desired_pos", traced)
+    mock_hand.set_joint_positions({"index_mcp": 0.0}, num_steps=5, step_size=0)
+
+    assert writes
+    assert all(motor_ids == (selected,) for motor_ids in writes)
+
+
 def test_disconnect_disables_torque_and_discards_client(mock_hand):
     client = mock_hand._motor_client
     mock_hand.disconnect()

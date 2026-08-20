@@ -253,6 +253,82 @@ def test_failed_torque_release_skips_limit_capture(
     assert not any(e["event"] == "joint_calibrated" for e in events)
 
 
+def test_single_joint_calibration_writes_only_selected_motor(
+    connected_hand, monkeypatch
+):
+    """A joint-scoped run must never configure, enable, or target another motor."""
+    hand = connected_hand
+    selected = hand.config.joint_to_motor_map["index_mcp"]
+    wrist = hand.config.joint_to_motor_map["wrist"]
+    client = hand.motor_client
+    writes = []
+
+    def trace(method_name):
+        original = getattr(client, method_name)
+
+        def traced(motor_ids, *args, **kwargs):
+            writes.append((method_name, tuple(motor_ids)))
+            return original(motor_ids, *args, **kwargs)
+
+        monkeypatch.setattr(client, method_name, traced)
+
+    for method_name in (
+        "set_torque_enabled",
+        "set_operating_mode",
+        "write_desired_current",
+        "write_desired_pos",
+    ):
+        trace(method_name)
+
+    result = calibration_routine.run_calibration(
+        hand, joints=["index_mcp"], persist=False
+    )
+
+    assert result is not None
+    assert writes
+    assert any(method == "write_desired_pos" for method, _ in writes)
+    assert all(motor_ids == (selected,) for _, motor_ids in writes), writes
+    assert all(wrist not in motor_ids for _, motor_ids in writes)
+
+
+def test_single_joint_abort_cleanup_writes_only_selected_motor(
+    connected_hand, monkeypatch
+):
+    hand = connected_hand
+    selected = hand.config.joint_to_motor_map["index_mcp"]
+    client = hand.motor_client
+    writes = []
+
+    for method_name in ("set_torque_enabled", "write_desired_current"):
+        original = getattr(client, method_name)
+
+        def traced(motor_ids, *args, _original=original, _name=method_name, **kwargs):
+            writes.append((_name, tuple(motor_ids)))
+            return _original(motor_ids, *args, **kwargs)
+
+        monkeypatch.setattr(client, method_name, traced)
+
+    result = calibration_routine.run_calibration(
+        hand,
+        joints=["index_mcp"], persist=False, should_stop=lambda: True
+    )
+
+    assert result is None
+    assert writes
+    assert all(motor_ids == (selected,) for _, motor_ids in writes)
+
+
+def test_calibration_rejects_unknown_or_empty_joint_scope(connected_hand):
+    with pytest.raises(ValueError, match="Unknown calibration joints"):
+        calibration_routine.run_calibration(
+            connected_hand, joints=["not_a_joint"], persist=False
+        )
+    with pytest.raises(ValueError, match="at least one selected joint"):
+        calibration_routine.run_calibration(
+            connected_hand, joints=[], persist=False
+        )
+
+
 # ---------------------------------------------------------------------------
 # write_yaml_atomic
 # ---------------------------------------------------------------------------

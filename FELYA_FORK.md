@@ -106,3 +106,10 @@ Automated tests must not require a serial device or enable outputs. Hardware
 validation is a separate staged process recorded outside this repository.
 No fork commit, tag, wheel, or passing unit test grants a physical capability
 tier by itself.
+
+Joint-scoped calibration preserves the selected motor set across operating-mode,
+current-limit, torque, hard-stop, cleanup, and return-to-neutral writes. Sparse
+joint interpolation must remain sparse; it must not synthesize targets for
+unselected motors. Contract tests trace every mocked vendor write and reject a
+single-joint run that addresses any other motor. This is a software boundary,
+not evidence that mechanical coupling or passive backdrive cannot occur.

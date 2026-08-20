@@ -420,30 +420,37 @@ class OrcaHand(BaseHand):
             )
         return failed_ids
 
-    def set_max_current(self, current: Union[float, List[float]]):
+    def set_max_current(
+        self, current: Union[float, List[float]], motor_ids: List[int] = None
+    ):
         """Set the maximum allowable current for the motors.
 
         Args:
-            current: Either a single float applied to all motors, or a list of
-                per-motor current values (mA). If a list, its length must match
-                the number of configured motors.
+            current: Either a single float applied to the selected motors, or a
+                list of per-motor current values (mA). If a list, its length
+                must match ``motor_ids``.
+            motor_ids: Motors to configure. Defaults to all motors.
 
         Raises:
             ValueError: If *current* is a list with the wrong length.
         """
+        motor_ids = self.config.motor_ids if motor_ids is None else motor_ids
+        if not all(motor_id in self.config.motor_ids for motor_id in motor_ids):
+            raise ValueError("Invalid motor IDs.")
+
         if isinstance(current, list):
-            if len(current) != len(self.config.motor_ids):
+            if len(current) != len(motor_ids):
                 raise ValueError(
                     "Number of currents do not match the number of motors."
                 )
 
             with self._motor_lock:
-                self._motor_client.write_desired_current(self.config.motor_ids, current)
+                self._motor_client.write_desired_current(motor_ids, current)
             return
 
         with self._motor_lock:
             self._motor_client.write_desired_current(
-                self.config.motor_ids, current * np.ones(len(self.config.motor_ids))
+                motor_ids, current * np.ones(len(motor_ids))
             )
 
     def set_control_mode(self, mode: str, motor_ids: List[int] = None):

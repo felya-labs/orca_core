@@ -69,6 +69,14 @@ inventory, immutable retention, or vendored Feetech SDK provenance is open.
 Only the byte-verified repository MIT license is asserted. No transitive or
 vendored license is inferred from a package name, lock hash, or root license.
 
+The versioned offline license/provenance ledger enumerates the exact 19-member
+runtime lock union and the tracked third-party source surfaces. Runtime
+dependencies and the nine Feetech SDK-derived files remain `NOASSERTION` until
+retained evidence supports a reviewed conclusion. The adapted ROBEL Dynamixel
+source declares Apache-2.0 in its header, but its license-text and notice
+obligations are still open; the repository-root MIT file is never treated as a
+whole-wheel conclusion. The compliance status binds the exact ledger digest.
+
 GitHub Actions dependencies are pinned to full commit IDs. A hash establishes
 immutable selection, not publisher trust.
 

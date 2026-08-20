@@ -56,4 +56,10 @@ def test_required_pr_ci_generates_and_compares_runtime_sbom() -> None:
     assert workflow.count("tools/generate_runtime_sbom.py") == 2
     assert "cmp build/compliance-a/runtime.cdx.json" in workflow
     assert "cmp build/compliance-a/status.json" in workflow
+    assert workflow.count("tools/validate_license_provenance.py") == 2
+    assert "compliance/license-provenance-review.v1.json" in (
+        ROOT / "FELYA_FORK.md"
+    ).read_text(encoding="utf-8") or "license/provenance ledger" in (
+        ROOT / "FELYA_FORK.md"
+    ).read_text(encoding="utf-8")
     assert "upload-artifact" not in workflow

@@ -16,12 +16,14 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 LOCK_PATH = ROOT / "uv.lock"
 LICENSE_PATH = ROOT / "LICENSE"
+LICENSE_LEDGER_PATH = ROOT / "compliance/license-provenance-review.v1.json"
 EXPECTED_UV = "0.11.16"
 ROOT_NAME = "felya-orca-core"
 ROOT_VERSION = "0.4.1.post1.dev0"
 ROOT_PURL = f"pkg:pypi/{ROOT_NAME}@{ROOT_VERSION}"
 FULL_SHA = "0123456789abcdef"
 OPEN_BLOCKERS = (
+    "adapted-dynamixel-license-obligations",
     "artifact-retention",
     "build-toolchain-inventory",
     "runtime-license-review",
@@ -227,7 +229,17 @@ def compliance_status(sbom: dict[str, Any]) -> dict[str, Any]:
             "rootExpression": "MIT",
             "transitiveConclusion": "NOASSERTION",
         },
+        "licenseProvenanceLedger": {
+            "path": "compliance/license-provenance-review.v1.json",
+            "sha256": sha256_bytes(LICENSE_LEDGER_PATH.read_bytes()),
+        },
         "openBlockers": [
+            {
+                "id": "adapted-dynamixel-license-obligations",
+                "status": "open",
+                "detail": "The adapted ROBEL Dynamixel source declares Apache-2.0, but retained license and notice-obligation review is incomplete.",
+                "paths": ["orca_core/hardware/dynamixel_client.py"],
+            },
             {
                 "id": "artifact-retention",
                 "status": "open",
@@ -260,6 +272,22 @@ def compliance_status(sbom: dict[str, Any]) -> dict[str, Any]:
 
 
 def validate_compliance_status(status: dict[str, Any], sbom: dict[str, Any]) -> None:
+    if set(status) != {
+        "schemaVersion",
+        "subject",
+        "sbom",
+        "releaseEligible",
+        "licenseReview",
+        "licenseProvenanceLedger",
+        "openBlockers",
+        "claims",
+    }:
+        raise SbomError("compliance status fields must be exact")
+    if status.get("schemaVersion") != 1 or status.get("subject") != {
+        "name": ROOT_NAME,
+        "version": ROOT_VERSION,
+    }:
+        raise SbomError("compliance status identity is invalid")
     if status.get("releaseEligible") is not False:
         raise SbomError("release eligibility must remain false while blockers are open")
     blockers = status.get("openBlockers")
@@ -277,14 +305,26 @@ def validate_compliance_status(status: dict[str, Any], sbom: dict[str, Any]) -> 
     if claims != expected_claims:
         raise SbomError("candidate trust and hardware claims must remain false")
     expected_digest = sha256_bytes(canonical_json(sbom))
-    if status.get("sbom", {}).get("sha256") != expected_digest:
+    if status.get("sbom") != {
+        "format": "CycloneDX",
+        "specVersion": "1.5",
+        "scope": "runtime-lock-union",
+        "sha256": expected_digest,
+    }:
         raise SbomError("compliance status does not bind the exact SBOM bytes")
+    if status.get("licenseProvenanceLedger") != {
+        "path": "compliance/license-provenance-review.v1.json",
+        "sha256": sha256_bytes(LICENSE_LEDGER_PATH.read_bytes()),
+    }:
+        raise SbomError("compliance status does not bind the exact review ledger")
     if status.get("licenseReview") != {
         "status": "incomplete",
         "rootExpression": "MIT",
         "transitiveConclusion": "NOASSERTION",
     }:
         raise SbomError("license review must remain incomplete and fail closed")
+    if status != compliance_status(sbom):
+        raise SbomError("compliance status details differ from the fail-closed policy")
 
 
 def canonical_json(value: dict[str, Any]) -> bytes:

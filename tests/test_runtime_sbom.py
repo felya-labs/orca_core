@@ -142,6 +142,16 @@ def test_compliance_status_rejects_promotion_and_digest_mutation(
     with pytest.raises(SbomError, match="exact SBOM"):
         validate_compliance_status(altered, sbom)
 
+    wrong_subject = copy.deepcopy(status)
+    wrong_subject["subject"]["version"] = "9.9.9"
+    with pytest.raises(SbomError, match="identity"):
+        validate_compliance_status(wrong_subject, sbom)
+
+    missing_notice = copy.deepcopy(status)
+    missing_notice["openBlockers"][0]["paths"] = []
+    with pytest.raises(SbomError, match="details"):
+        validate_compliance_status(missing_notice, sbom)
+
 
 def test_vendored_feetech_surface_remains_an_explicit_blocker(
     sbom: dict[str, Any],

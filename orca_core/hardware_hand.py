@@ -747,6 +747,7 @@ class OrcaHand(BaseHand):
         joint_encoder_client=None,
         progress_callback=None,
         persist: bool | None = None,
+        step_timeout_s: float | None = None,
     ):
         """Run the joint calibration routine.
 
@@ -768,14 +769,19 @@ class OrcaHand(BaseHand):
                 ``encoder_anchor_recorded``, ``encoder_anchor_failed``,
                 ``offset_calibration_failed``, ``wrist_skipped``,
                 ``step_done``, ``calibration_done``, ``calibration_aborted``,
-                and ``cleanup_failed``. Called from the calibrating thread;
-                must be fast and non-blocking. Exceptions raised by the
-                callback are swallowed.
+                ``calibration_step_timed_out``, and ``cleanup_failed``. Called
+                from the calibrating thread; must be fast and non-blocking.
+                Exceptions raised by the callback are swallowed.
             persist: Whether results are written to ``calibration.yaml``
                 (in-memory ``self.calibration`` updates either way). ``None``
                 (default) defers to the class: real hands persist, ``Mock*``
                 hands don't. Pass ``True`` on a mock to deliberately write a
                 synthetic calibration file.
+            step_timeout_s: Optional positive finite elapsed-time bound checked
+                between hardware calls for each calibration step. Timeout
+                aborts calibration and releases torque, but cannot interrupt a
+                blocked driver call. Safety runtimes should provide this value
+                together with an outer hard process deadline.
         """
         if persist is None:
             persist = self._persist_calibration
@@ -787,6 +793,7 @@ class OrcaHand(BaseHand):
                 joint_encoder_client=joint_encoder_client,
                 progress_callback=progress_callback,
                 persist=persist,
+                step_timeout_s=step_timeout_s,
             )
         else:
             self._start_task(
@@ -796,6 +803,7 @@ class OrcaHand(BaseHand):
                 joint_encoder_client=joint_encoder_client,
                 progress_callback=progress_callback,
                 persist=persist,
+                step_timeout_s=step_timeout_s,
             )
 
     def _calibrate_and_apply(self, **kwargs):

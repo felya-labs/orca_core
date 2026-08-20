@@ -19,6 +19,7 @@ import orca_core.hardware.feetech_client as feetech_client_module
 from orca_core.hardware.feetech_client import (
     COMM_SUCCESS,
     FeetechClient,
+    FeetechMotorIdentity,
 )
 from orca_core.hardware.feetech import (
     SMS_STS_MODE,
@@ -63,6 +64,7 @@ class FakePacketHandler:
 
     def __init__(self, positions: dict[int, int]):
         self.positions = dict(positions)
+        self.model_numbers = {motor_id: 6922 for motor_id in positions}
         self.torque_enabled = {motor_id: False for motor_id in positions}
         self.unavailable_ids: set[int] = set()
         self.sync_fails = False
@@ -96,6 +98,12 @@ class FakePacketHandler:
             return 0, 1, 0
         assert address == SMS_STS_TORQUE_ENABLE
         return int(self.torque_enabled[motor_id]), COMM_SUCCESS, 0
+
+    def ping(self, motor_id):
+        self._record("ping")
+        if motor_id in self.unavailable_ids:
+            return 0, 1, 0
+        return self.model_numbers[motor_id], COMM_SUCCESS, 0
 
     def write1ByteTxRx(self, motor_id, address, value):
         self._record("write1")
@@ -450,9 +458,15 @@ def test_observe_only_connect_read_and_disconnect_never_write(monkeypatch):
     assert handler.log == []
     assert feetech.read_torque_enabled() == {1: False, 2: True}
     assert handler.log == ["read1", "read1"]
+    handler.model_numbers = {1: 4106, 2: 6922}
+    assert feetech.read_motor_inventory() == (
+        FeetechMotorIdentity(1, 4106, "HLS3930"),
+        FeetechMotorIdentity(2, 6922, "HLS3915"),
+    )
+    assert handler.log == ["read1", "read1", "ping", "ping"]
 
     feetech.disconnect()
-    assert handler.log == ["read1", "read1"]
+    assert handler.log == ["read1", "read1", "ping", "ping"]
     assert feetech.observe_only is False
     assert feetech.port_handler.is_open is False
 
@@ -482,6 +496,28 @@ def test_observe_only_torque_read_fails_closed_on_partial_reply(client):
         feetech.read_torque_enabled()
 
     assert handler.log == ["read1", "read1", "flush"]
+
+
+def test_motor_inventory_fails_closed_on_partial_reply(client):
+    feetech, handler = client
+    feetech._observe_only = True
+    feetech.port_handler.ser = FakeSerial(handler.log)
+    handler.unavailable_ids = {2}
+
+    with pytest.raises(OSError, match="motor 2"):
+        feetech.read_motor_inventory()
+
+    assert handler.log == ["ping", "ping", "flush"]
+
+
+def test_motor_inventory_preserves_unknown_model_number(client):
+    feetech, handler = client
+    handler.model_numbers[2] = 9999
+
+    inventory = feetech.read_motor_inventory()
+
+    assert inventory[1] == FeetechMotorIdentity(2, 9999, "Unknown(9999)")
+    assert handler.log == ["ping", "ping", "ping"]
 
 
 @pytest.mark.parametrize(

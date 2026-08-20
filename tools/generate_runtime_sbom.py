@@ -212,6 +212,25 @@ def validate_sbom(
             raise SbomError("dependency graph references an unknown component")
 
 
+def validate_against_locked_export(
+    document: dict[str, Any], *, source_commit: str, source_timestamp: int
+) -> None:
+    """Require exact components, markers, hashes, and edges from a second lock export."""
+
+    expected = normalize_sbom(
+        _export_uv_sbom(),
+        source_commit=source_commit,
+        source_timestamp=source_timestamp,
+    )
+    validate_sbom(
+        expected,
+        expected_source_commit=source_commit,
+        expected_source_timestamp=source_timestamp,
+    )
+    if canonical_json(document) != canonical_json(expected):
+        raise SbomError("SBOM differs from the exact locked offline export")
+
+
 def compliance_status(sbom: dict[str, Any]) -> dict[str, Any]:
     rendered = canonical_json(sbom)
     return {
@@ -248,7 +267,7 @@ def compliance_status(sbom: dict[str, Any]) -> dict[str, Any]:
             {
                 "id": "build-toolchain-inventory",
                 "status": "open",
-                "detail": "The transitive Hatchling build-toolchain closure is not locked or reviewed.",
+                "detail": "The Hatchling closure is locked and hash-constrained, but its artifacts are not retained and its licenses are NOASSERTION.",
             },
             {
                 "id": "runtime-license-review",
@@ -342,6 +361,11 @@ def main() -> int:
         sbom,
         expected_source_commit=commit,
         expected_source_timestamp=timestamp,
+    )
+    validate_against_locked_export(
+        sbom,
+        source_commit=commit,
+        source_timestamp=timestamp,
     )
     status = compliance_status(sbom)
     validate_compliance_status(status, sbom)

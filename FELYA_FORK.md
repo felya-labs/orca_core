@@ -77,6 +77,16 @@ source declares Apache-2.0 in its header, but its license-text and notice
 obligations are still open; the repository-root MIT file is never treated as a
 whole-wheel conclusion. The compliance status binds the exact ledger digest.
 
+The PEP 517 build dependency is mirrored into a dedicated, non-runtime `build`
+group. Its seven-component Hatchling closure is exported from the exact lock as
+hashed constraints. CI hydrates a temporary wheelhouse, then performs both
+builds with separate empty caches, `--offline`, `--no-index`, constraints, and
+required hashes. This proves the selected build path can run without network
+after hydration; it does not prove long-term artifact retention, publisher
+identity, license clearance, or fresh-machine availability. Those blockers
+remain open. Runtime SBOM generation independently compares its result with a
+second normalized offline lock export, including markers and dependency edges.
+
 GitHub Actions dependencies are pinned to full commit IDs. A hash establishes
 immutable selection, not publisher trust.
 

@@ -46,6 +46,13 @@ def test_required_pr_ci_builds_and_compares_two_candidates() -> None:
 
     assert "version: '0.11.16'" in workflow
     assert workflow.count("uv build --wheel") == 2
+    assert workflow.count("--offline --no-index") == 2
+    assert workflow.count("--require-hashes") >= 3
+    assert workflow.count("--build-constraints") == 2
+    assert "tools/validate_build_toolchain.py" in workflow
+    assert "build/build-wheelhouse" in workflow
+    assert "build/empty-cache-a" in workflow
+    assert "build/empty-cache-b" in workflow
     assert "cmp build/candidate-a/*.whl build/candidate-b/*.whl" in workflow
     assert "tools/verify_release_candidate.py" in workflow
 

@@ -6,6 +6,7 @@ from typing import Any
 
 import pytest
 
+import tools.generate_runtime_sbom as runtime_sbom
 from tools.generate_runtime_sbom import (
     OPEN_BLOCKERS,
     ROOT_NAME,
@@ -15,6 +16,7 @@ from tools.generate_runtime_sbom import (
     canonical_json,
     compliance_status,
     normalize_sbom,
+    validate_against_locked_export,
     validate_compliance_status,
     validate_sbom,
 )
@@ -89,6 +91,40 @@ def test_normalized_runtime_sbom_is_deterministic_and_fail_closed(
         {"license": {"id": "MIT"}}
     ]
     assert "licenses" not in sbom["components"][0]
+
+
+def test_runtime_sbom_exactly_matches_second_locked_export(
+    sbom: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(runtime_sbom, "_export_uv_sbom", uv_document)
+
+    validate_against_locked_export(
+        sbom, source_commit="a" * 40, source_timestamp=1_700_000_000
+    )
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda value: value["components"][0].update(
+            {"version": "9.9", "purl": "pkg:pypi/pyserial@9.9"}
+        ),
+        lambda value: value["dependencies"][0].update({"dependsOn": []}),
+        lambda value: value["components"].pop(),
+    ],
+)
+def test_locked_export_comparison_rejects_consistent_graph_mutations(
+    sbom: dict[str, Any],
+    monkeypatch: pytest.MonkeyPatch,
+    mutate: Callable[[dict[str, Any]], object],
+) -> None:
+    monkeypatch.setattr(runtime_sbom, "_export_uv_sbom", uv_document)
+    mutate(sbom)
+
+    with pytest.raises(SbomError, match="exact locked offline export"):
+        validate_against_locked_export(
+            sbom, source_commit="a" * 40, source_timestamp=1_700_000_000
+        )
 
 
 @pytest.mark.parametrize(

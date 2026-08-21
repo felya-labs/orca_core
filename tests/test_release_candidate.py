@@ -37,7 +37,7 @@ def _candidate(
     metadata = (
         "Metadata-Version: 2.4\n"
         f"Name: {name}\n"
-        "Version: 0.4.1.post2.dev0\n"
+        "Version: 0.4.1.post3.dev0\n"
         "License: MIT\n\n"
     ).encode()
     members = {

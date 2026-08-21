@@ -797,6 +797,7 @@ class OrcaHand(BaseHand):
         profile_speed: int | None = None,
         profile_acceleration: int | None = None,
         profile_torque: int | None = None,
+        fail_on_step_error: bool = False,
     ):
         """Run the joint calibration routine.
 
@@ -836,6 +837,9 @@ class OrcaHand(BaseHand):
                 supplied, every calibration position write, including the
                 return interpolation, uses the motor client's acknowledged
                 profiled-write path instead of its default speed.
+            fail_on_step_error: Abort and release the selected motors after an
+                offset-calibration or torque-release failure. Defaults to the
+                upstream-compatible behavior that skips the affected joint.
         """
         profile = self._validate_position_write_profile(
             profile_speed, profile_acceleration, profile_torque
@@ -854,6 +858,7 @@ class OrcaHand(BaseHand):
                 persist=persist,
                 step_timeout_s=step_timeout_s,
                 position_write_profile=profile,
+                fail_on_step_error=fail_on_step_error,
             )
         else:
             self._start_task(
@@ -865,6 +870,7 @@ class OrcaHand(BaseHand):
                 persist=persist,
                 step_timeout_s=step_timeout_s,
                 position_write_profile=profile,
+                fail_on_step_error=fail_on_step_error,
             )
 
     def _calibrate_and_apply(self, **kwargs):

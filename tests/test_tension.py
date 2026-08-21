@@ -119,3 +119,211 @@ def test_run_tension_holding_prints_nothing(connected_mock_hand, capsys):
     capsys.readouterr()
     run_tension(connected_mock_hand, move_motors=False, should_stop=lambda: True)
     assert capsys.readouterr().out == ""
+
+
+def test_run_tension_scopes_every_write_to_exact_selected_motors(
+    connected_mock_hand, monkeypatch
+):
+    from orca_core.maintenance.tensioning import run_tension
+
+    hand = connected_mock_hand
+    selected = [
+        hand.config.joint_to_motor_map["index_mcp"],
+        hand.config.joint_to_motor_map["middle_mcp"],
+    ]
+    excluded = hand.config.joint_to_motor_map["pinky_pip"]
+    client = hand.motor_client
+    writes = []
+
+    for method_name in (
+        "set_torque_enabled",
+        "set_operating_mode",
+        "write_desired_current",
+        "write_desired_pos",
+    ):
+        original = getattr(client, method_name)
+
+        def traced(motor_ids, *args, _original=original, _name=method_name, **kwargs):
+            writes.append((_name, tuple(motor_ids)))
+            return _original(motor_ids, *args, **kwargs)
+
+        monkeypatch.setattr(client, method_name, traced)
+
+    run_tension(
+        hand,
+        move_motors=True,
+        motor_ids=selected,
+        winding_current=120,
+        hold_current=100,
+        max_wind_s=0.001,
+        hold_duration_s=0.001,
+    )
+
+    assert writes
+    assert any(method == "write_desired_pos" for method, _ in writes)
+    assert all(set(motor_ids).issubset(selected) for _, motor_ids in writes), writes
+    assert all(excluded not in motor_ids for _, motor_ids in writes)
+    assert not any(client._torque_enabled.values())
+
+
+@pytest.mark.parametrize(
+    ("motor_ids", "match"),
+    [
+        ([], "nonempty"),
+        ([2, 2], "unique"),
+        ([999], "unknown"),
+        ([True], "integers"),
+    ],
+)
+def test_run_tension_rejects_invalid_scope_before_any_write(
+    connected_mock_hand, monkeypatch, motor_ids, match
+):
+    from orca_core.maintenance.tensioning import run_tension
+
+    writes = []
+    client = connected_mock_hand.motor_client
+    for method_name in (
+        "set_torque_enabled",
+        "set_operating_mode",
+        "write_desired_current",
+        "write_desired_pos",
+    ):
+        original = getattr(client, method_name)
+
+        def traced(ids, *args, _original=original, _name=method_name, **kwargs):
+            writes.append((_name, tuple(ids)))
+            return _original(ids, *args, **kwargs)
+
+        monkeypatch.setattr(client, method_name, traced)
+
+    with pytest.raises(ValueError, match=match):
+        run_tension(connected_mock_hand, motor_ids=motor_ids)
+    assert writes == []
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"winding_current": 0},
+        {"hold_current": float("nan")},
+        {"max_wind_s": float("inf")},
+        {"hold_duration_s": -1},
+    ],
+)
+def test_run_tension_rejects_invalid_bounds_before_any_write(
+    connected_mock_hand, monkeypatch, kwargs
+):
+    from orca_core.maintenance.tensioning import run_tension
+
+    writes = []
+    client = connected_mock_hand.motor_client
+    original = client.set_operating_mode
+
+    def traced(ids, *args, **call_kwargs):
+        writes.append(tuple(ids))
+        return original(ids, *args, **call_kwargs)
+
+    monkeypatch.setattr(client, "set_operating_mode", traced)
+    with pytest.raises(ValueError, match="positive finite"):
+        run_tension(connected_mock_hand, motor_ids=[2], **kwargs)
+    assert writes == []
+
+
+def test_profiled_tension_uses_acknowledged_selected_motor_writes(
+    connected_mock_hand, monkeypatch
+):
+    hand = connected_mock_hand
+    selected = [hand.config.joint_to_motor_map["index_mcp"]]
+    writes = []
+    client = hand.motor_client
+    monkeypatch.setattr(client, "supports_profiled_position_writes", True)
+
+    def profiled(motor_ids, positions, *, speed, acceleration, torque):
+        writes.append((tuple(motor_ids), speed, acceleration, torque))
+        return []
+
+    monkeypatch.setattr(client, "write_desired_pos_profiled", profiled)
+
+    hand.tension(
+        blocking=True,
+        motor_ids=selected,
+        winding_current=120,
+        hold_current=100,
+        max_wind_s=0.001,
+        hold_duration_s=0.001,
+        profile_speed=10,
+        profile_acceleration=5,
+        profile_torque=120,
+    )
+
+    assert writes
+    assert all(item == ((selected[0],), 10, 5, 120) for item in writes)
+
+
+def test_tension_cleanup_attempts_selected_disable_after_restore_failure(
+    connected_mock_hand, monkeypatch
+):
+    from orca_core.maintenance.tensioning import run_tension
+
+    selected = [connected_mock_hand.config.joint_to_motor_map["index_mcp"]]
+    current_calls = 0
+    disabled = []
+    events = []
+
+    def current(current, motor_ids=None):
+        nonlocal current_calls
+        current_calls += 1
+        if current_calls > 1:
+            raise RuntimeError("current restore failed")
+
+    def disable(motor_ids=None):
+        disabled.append(tuple(motor_ids or ()))
+        return []
+
+    monkeypatch.setattr(connected_mock_hand, "set_max_current", current)
+    monkeypatch.setattr(connected_mock_hand, "disable_torque", disable)
+
+    with pytest.raises(RuntimeError, match="current restore failed"):
+        run_tension(
+            connected_mock_hand,
+            move_motors=False,
+            motor_ids=selected,
+            hold_duration_s=0.001,
+            progress_callback=events.append,
+        )
+
+    assert disabled == [tuple(selected)]
+    assert events[-1]["event"] == "phase"
+    assert events[-1]["phase"] == "released"
+
+
+def test_tension_enable_failure_triggers_selected_cleanup(
+    connected_mock_hand, monkeypatch
+):
+    from orca_core.maintenance.tensioning import run_tension
+
+    selected = [connected_mock_hand.config.joint_to_motor_map["index_mcp"]]
+    enabled = []
+    disabled = []
+
+    def enable(motor_ids=None):
+        enabled.append(tuple(motor_ids or ()))
+        return list(motor_ids or ())
+
+    def disable(motor_ids=None):
+        disabled.append(tuple(motor_ids or ()))
+        return []
+
+    monkeypatch.setattr(connected_mock_hand, "enable_torque", enable)
+    monkeypatch.setattr(connected_mock_hand, "disable_torque", disable)
+
+    with pytest.raises(RuntimeError, match="torque enable failed"):
+        run_tension(
+            connected_mock_hand,
+            move_motors=False,
+            motor_ids=selected,
+            hold_duration_s=0.001,
+        )
+
+    assert enabled == [tuple(selected)]
+    assert disabled == [tuple(selected)]

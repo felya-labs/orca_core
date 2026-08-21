@@ -1229,6 +1229,14 @@ class OrcaHand(BaseHand):
         move_motors: bool = True,
         blocking: bool = True,
         progress_callback=None,
+        motor_ids: List[int] = None,
+        winding_current: float | None = None,
+        hold_current: float | None = None,
+        max_wind_s: float = 20.0,
+        hold_duration_s: float | None = None,
+        profile_speed: int | None = None,
+        profile_acceleration: int | None = None,
+        profile_torque: int | None = None,
     ):
         """Hold motors under current to allow manual tendon tensioning.
 
@@ -1247,14 +1255,39 @@ class OrcaHand(BaseHand):
                 ``cleanup_failed``. Called from the tensioning thread; must
                 be fast and non-blocking. Exceptions raised by the callback
                 are swallowed.
+            motor_ids: Exact motors permitted to receive every tension write.
+                ``None`` preserves the legacy all-motor behavior.
+            winding_current: Optional positive finite winding current/torque
+                limit. Defaults to ``config.calibration_current``.
+            hold_current: Optional positive finite hold current/torque limit.
+                Defaults to ``config.max_current``.
+            max_wind_s: Positive finite bound for each winding direction.
+            hold_duration_s: Optional positive finite hold bound. ``None``
+                preserves the cooperative indefinite legacy hold.
+            profile_speed/profile_acceleration/profile_torque: Optional native
+                position-write profile. All three values are required together.
+                Profiled tensioning requires ``blocking=True``.
         """
+        profile = self._validate_position_write_profile(
+            profile_speed, profile_acceleration, profile_torque
+        )
+        if profile is not None and not blocking:
+            raise ValueError("profiled tensioning currently requires blocking=True")
+        options = {
+            "move_motors": move_motors,
+            "progress_callback": progress_callback,
+            "motor_ids": motor_ids,
+            "winding_current": winding_current,
+            "hold_current": hold_current,
+            "max_wind_s": max_wind_s,
+            "hold_duration_s": hold_duration_s,
+            "position_write_profile": profile,
+        }
         if blocking:
             self._task_stop_event.clear()
-            self._tension(move_motors, progress_callback=progress_callback)
+            self._tension(**options)
         else:
-            self._start_task(
-                self._tension, move_motors, progress_callback=progress_callback
-            )
+            self._start_task(self._tension, **options)
 
     def jitter(
         self,
@@ -1311,13 +1344,46 @@ class OrcaHand(BaseHand):
             should_stop=self._task_stop_event.is_set,
         )
 
-    def _tension(self, move_motors: bool = True, progress_callback=None):
-        run_tension(
-            self,
-            move_motors=move_motors,
-            progress_callback=progress_callback,
-            should_stop=self._task_stop_event.is_set,
+    def _tension(
+        self,
+        move_motors: bool = True,
+        progress_callback=None,
+        motor_ids: List[int] = None,
+        winding_current: float | None = None,
+        hold_current: float | None = None,
+        max_wind_s: float = 20.0,
+        hold_duration_s: float | None = None,
+        position_write_profile: tuple[int, int, int] | None = None,
+    ):
+        selected = frozenset(self.config.motor_ids if motor_ids is None else motor_ids)
+        active_profile = (
+            None
+            if position_write_profile is None
+            else _PositionWriteProfile(
+                *position_write_profile,
+                motor_ids=selected,
+                owner_thread_id=threading.get_ident(),
+            )
         )
+        with self._position_write_profile_lock:
+            if self._position_write_profile is not None:
+                raise RuntimeError("another profiled maintenance task already owns the hand")
+            self._position_write_profile = active_profile
+        try:
+            run_tension(
+                self,
+                move_motors=move_motors,
+                motor_ids=motor_ids,
+                winding_current=winding_current,
+                hold_current=hold_current,
+                max_wind_s=max_wind_s,
+                hold_duration_s=hold_duration_s,
+                progress_callback=progress_callback,
+                should_stop=self._task_stop_event.is_set,
+            )
+        finally:
+            with self._position_write_profile_lock:
+                self._position_write_profile = None
 
     def _run_task(self, task_fn, *args, **kwargs):
         with self._lock:

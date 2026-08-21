@@ -222,7 +222,7 @@ wheels = [
 
 [[package]]
 name = "felya-orca-core"
-version = "0.4.1.post1.dev0"
+version = "0.4.1.post2.dev0"
 source = { editable = "." }
 dependencies = [
     { name = "dynamixel-sdk" },

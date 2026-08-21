@@ -1272,13 +1272,12 @@ class OrcaHand(BaseHand):
                 preserves the cooperative indefinite legacy hold.
             profile_speed/profile_acceleration/profile_torque: Optional native
                 position-write profile. All three values are required together.
-                Profiled tensioning requires ``blocking=True``.
+                The profile is scoped to the tension worker thread in both
+                blocking and background modes.
         """
         profile = self._validate_position_write_profile(
             profile_speed, profile_acceleration, profile_torque
         )
-        if profile is not None and not blocking:
-            raise ValueError("profiled tensioning currently requires blocking=True")
         options = {
             "move_motors": move_motors,
             "progress_callback": progress_callback,

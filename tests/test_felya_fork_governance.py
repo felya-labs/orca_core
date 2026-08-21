@@ -48,7 +48,7 @@ def test_candidate_uses_distinct_identity_and_exact_build_backend() -> None:
     pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
 
     assert 'name = "felya-orca-core"' in pyproject
-    assert 'version = "0.4.1.post3.dev0"' in pyproject
+    assert 'version = "0.4.1.post4.dev0"' in pyproject
     assert 'requires = ["hatchling==1.32.0"]' in pyproject
 
 

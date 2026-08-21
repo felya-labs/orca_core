@@ -260,6 +260,42 @@ def test_profiled_tension_uses_acknowledged_selected_motor_writes(
     assert all(item == ((selected[0],), 10, 5, 120) for item in writes)
 
 
+def test_profiled_tension_background_task_stops_cooperatively(
+    connected_mock_hand, monkeypatch
+):
+    hand = connected_mock_hand
+    selected = [hand.config.joint_to_motor_map["index_mcp"]]
+    writes = []
+    client = hand.motor_client
+    monkeypatch.setattr(client, "supports_profiled_position_writes", True)
+
+    def profiled(motor_ids, positions, *, speed, acceleration, torque):
+        writes.append((tuple(motor_ids), speed, acceleration, torque))
+        return []
+
+    monkeypatch.setattr(client, "write_desired_pos_profiled", profiled)
+
+    hand.tension(
+        blocking=False,
+        motor_ids=selected,
+        winding_current=120,
+        hold_current=100,
+        max_wind_s=0.001,
+        profile_speed=10,
+        profile_acceleration=5,
+        profile_torque=120,
+    )
+    deadline = time.monotonic() + 1.0
+    while not writes and time.monotonic() < deadline:
+        time.sleep(0.001)
+
+    assert writes
+    assert hand.stop_task(timeout=1.0)
+    assert not hand.task_running
+    assert hand._position_write_profile is None
+    assert all(item == ((selected[0],), 10, 5, 120) for item in writes)
+
+
 def test_tension_cleanup_attempts_selected_disable_after_restore_failure(
     connected_mock_hand, monkeypatch
 ):

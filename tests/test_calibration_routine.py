@@ -117,6 +117,43 @@ def test_initial_offset_failure_skips_joint_and_keeps_limits(
     assert not any(e["event"] == "joint_calibrated" for e in events)
 
 
+def test_initial_offset_failure_aborts_selected_run_in_fail_closed_mode(
+    connected_hand, monkeypatch
+):
+    hand = connected_hand
+    target = "thumb_cmc"
+    target_motor = hand.config.joint_to_motor_map[target]
+    offset_calls = []
+    disabled = []
+    original_disable = hand.disable_torque
+
+    def failed_offset(motor_id, upper=True):
+        offset_calls.append((motor_id, upper))
+        return False
+
+    def traced_disable(motor_ids=None):
+        disabled.append(tuple(motor_ids or ()))
+        return original_disable(motor_ids)
+
+    _force_offset_calibration(hand, monkeypatch, failed_offset)
+    monkeypatch.setattr(hand, "disable_torque", traced_disable)
+    events = []
+
+    result = calibration_routine.run_calibration(
+        hand,
+        joints=[target],
+        progress_callback=events.append,
+        persist=False,
+        fail_on_step_error=True,
+    )
+
+    assert result is None
+    assert offset_calls == [(target_motor, False)]
+    assert disabled[-1] == (target_motor,)
+    assert any(e["event"] == "offset_calibration_failed" for e in events)
+    assert not any(e["event"] == "calibration_done" for e in events)
+
+
 def test_wrist_offset_failure_keeps_wrist_uncalibrated_and_recoverable(
     connected_hand, calib_dir, monkeypatch
 ):
@@ -210,6 +247,44 @@ def test_final_offset_failure_records_no_limit(connected_hand, monkeypatch):
     assert not any(e["event"] == "joint_calibrated" for e in events)
 
 
+def test_final_offset_failure_aborts_without_reenabling_in_fail_closed_mode(
+    connected_hand, monkeypatch
+):
+    hand = connected_hand
+    target = "thumb_cmc"
+    target_motor = hand.config.joint_to_motor_map[target]
+    calls = 0
+    enabled = []
+    original_enable = hand.enable_torque
+
+    def offset_stub(motor_id, upper=True):
+        nonlocal calls
+        calls += 1
+        return calls == 1
+
+    def traced_enable(motor_ids=None):
+        enabled.append(tuple(motor_ids or ()))
+        return original_enable(motor_ids)
+
+    _force_offset_calibration(hand, monkeypatch, offset_stub)
+    monkeypatch.setattr(hand, "enable_torque", traced_enable)
+    events = []
+
+    result = calibration_routine.run_calibration(
+        hand,
+        joints=[target],
+        progress_callback=events.append,
+        persist=False,
+        fail_on_step_error=True,
+    )
+
+    assert result is None
+    assert calls == 2
+    assert enabled == [(target_motor,)]
+    assert any(e["event"] == "offset_calibration_failed" for e in events)
+    assert not any(e["event"] == "calibration_done" for e in events)
+
+
 # ---------------------------------------------------------------------------
 # Torque-release failure handling
 # ---------------------------------------------------------------------------
@@ -251,6 +326,40 @@ def test_failed_torque_release_skips_limit_capture(
     assert failures and all(e["motor"] == target_motor for e in failures)
     assert not any(e["event"] == "limit_recorded" for e in events)
     assert not any(e["event"] == "joint_calibrated" for e in events)
+
+
+def test_failed_torque_release_aborts_selected_run_in_fail_closed_mode(
+    connected_hand, monkeypatch
+):
+    hand = connected_hand
+    target = "thumb_cmc"
+    target_motor = hand.config.joint_to_motor_map[target]
+    original_disable = hand.disable_torque
+    release_failures = 0
+    events = []
+
+    def failing_disable(motor_ids=None):
+        nonlocal release_failures
+        result = original_disable(motor_ids)
+        if motor_ids == [target_motor]:
+            release_failures += 1
+            return [target_motor]
+        return result
+
+    monkeypatch.setattr(hand, "disable_torque", failing_disable)
+
+    result = calibration_routine.run_calibration(
+        hand,
+        joints=[target],
+        progress_callback=events.append,
+        persist=False,
+        fail_on_step_error=True,
+    )
+
+    assert result is None
+    assert release_failures >= 1
+    assert any(e["event"] == "torque_release_failed" for e in events)
+    assert not any(e["event"] == "calibration_done" for e in events)
 
 
 def test_single_joint_calibration_writes_only_selected_motor(
@@ -353,6 +462,27 @@ def test_calibration_rejects_unknown_or_empty_joint_scope(connected_hand):
         calibration_routine.run_calibration(
             connected_hand, joints=[], persist=False
         )
+
+
+def test_calibration_rejects_non_boolean_fail_closed_mode_before_hardware(
+    connected_hand, monkeypatch
+):
+    writes = []
+    monkeypatch.setattr(
+        connected_hand,
+        "set_control_mode",
+        lambda *args, **kwargs: writes.append((args, kwargs)),
+    )
+
+    with pytest.raises(ValueError, match="fail_on_step_error must be a boolean"):
+        calibration_routine.run_calibration(
+            connected_hand,
+            joints=["index_mcp"],
+            persist=False,
+            fail_on_step_error="yes",
+        )
+
+    assert writes == []
 
 
 # ---------------------------------------------------------------------------

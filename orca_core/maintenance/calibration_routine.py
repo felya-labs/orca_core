@@ -92,6 +92,7 @@ def run_calibration(
     should_stop: Optional[ShouldStop] = None,
     persist: bool = True,
     step_timeout_s: float | None = None,
+    fail_on_step_error: bool = False,
 ) -> CalibrationResult | None:
     """Run the calibration routine on ``hand`` and return the result.
 
@@ -131,6 +132,10 @@ def run_calibration(
             safety runtimes still need an outer hard process deadline. The
             default preserves the upstream unbounded behavior; safety runtimes
             should always provide an explicit positive finite value.
+        fail_on_step_error: Abort the complete selected run after an offset
+            calibration or torque-release failure instead of skipping the
+            affected joint. The default preserves the interactive recovery
+            behavior; safety runtimes should enable this fail-closed mode.
     """
     if step_timeout_s is not None and (
         isinstance(step_timeout_s, bool)
@@ -139,6 +144,8 @@ def run_calibration(
         or step_timeout_s <= 0
     ):
         raise ValueError("step_timeout_s must be a positive finite number")
+    if not isinstance(fail_on_step_error, bool):
+        raise ValueError("fail_on_step_error must be a boolean")
     if should_stop is None:
         should_stop = lambda: False  # noqa: E731
 
@@ -154,6 +161,7 @@ def run_calibration(
             should_stop=should_stop,
             persist=persist,
             step_timeout_s=step_timeout_s,
+            fail_on_step_error=fail_on_step_error,
         )
     finally:
         if result is None:
@@ -279,6 +287,7 @@ def _drive_calibration(
     should_stop: ShouldStop,
     persist: bool,
     step_timeout_s: float | None,
+    fail_on_step_error: bool,
 ) -> CalibrationResult | None:
     """Execute the calibration routine and return a :class:`~orca_core.CalibrationResult`.
 
@@ -472,6 +481,8 @@ def _drive_calibration(
                         joint,
                     )
                     hand.disable_torque([motor_id])
+                    if fail_on_step_error:
+                        return None
                     continue
                 motors_with_initial_offset.add(motor_id)
 
@@ -599,6 +610,8 @@ def _drive_calibration(
                     "torque release failed for motor %d; limit not recorded",
                     motor_id,
                 )
+                if fail_on_step_error:
+                    return None
                 continue
             time.sleep(TINY_SLEEP)
             avg_limit = float(_read_motor_pos_checked(hand)[idx])
@@ -621,6 +634,8 @@ def _drive_calibration(
                         "offset calibration failed for motor %d; limit not recorded",
                         motor_id,
                     )
+                    if fail_on_step_error:
+                        return None
                     hand.enable_torque([motor_id])
                     continue
                 time.sleep(TINY_SLEEP)

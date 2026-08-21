@@ -24,7 +24,7 @@ from typing import Callable, List, Optional, TYPE_CHECKING
 
 import numpy as np
 
-from ..constants import CURRENT_BASED_POSITION, WRIST
+from ..constants import CURRENT_BASED_POSITION
 
 if TYPE_CHECKING:
     from ..hardware_hand import OrcaHand
@@ -49,6 +49,11 @@ def run_tension(
     hand: "OrcaHand",
     move_motors: bool = True,
     *,
+    motor_ids: Optional[List[int]] = None,
+    winding_current: float | None = None,
+    hold_current: float | None = None,
+    max_wind_s: float = 20.0,
+    hold_duration_s: float | None = None,
     progress_callback: Optional[ProgressCallback] = None,
     should_stop: Optional[ShouldStop] = None,
 ) -> None:
@@ -57,11 +62,23 @@ def run_tension(
     Optionally pre-conditions the tendons first by winding each direction
     until the motors stall. Holds until ``should_stop`` returns ``True``.
     On any exit — cooperative stop or exception — torque is disabled and the
-    configured control mode and current limit are restored.
+    configured control mode and current limit are restored for exactly the
+    selected motors. Passing ``motor_ids`` makes every write in the routine
+    motor-scoped; ``None`` preserves the legacy all-motor behavior.
 
     Args:
         hand: A connected :class:`~orca_core.OrcaHand`.
         move_motors: When ``True``, wind the tendons taut before holding.
+        motor_ids: Exact motors permitted to receive mode, current, position,
+            torque-enable, torque-disable, and cleanup writes. ``None`` selects
+            all configured motors for backward compatibility.
+        winding_current: Positive finite winding current/torque limit. Defaults
+            to ``config.calibration_current``.
+        hold_current: Positive finite hold current/torque limit. Defaults to
+            ``config.max_current``.
+        max_wind_s: Positive finite bound for each winding direction.
+        hold_duration_s: Optional positive finite bound for the hold phase.
+            ``None`` preserves the legacy cooperative indefinite hold.
         progress_callback: Optional ``callable(dict)`` invoked with
             structured progress events (``phase`` with
             winding/ramp/holding/released, ``winding_progress``,
@@ -73,23 +90,61 @@ def run_tension(
     if should_stop is None:
         should_stop = lambda: False  # noqa: E731
 
+    selected_motor_ids = _validate_motor_selection(hand, motor_ids)
+    winding_current = _positive_finite(
+        hand.config.calibration_current if winding_current is None else winding_current,
+        "winding_current",
+    )
+    hold_current = _positive_finite(
+        hand.config.max_current if hold_current is None else hold_current,
+        "hold_current",
+    )
+    max_wind_s = _positive_finite(max_wind_s, "max_wind_s")
+    if hold_duration_s is not None:
+        hold_duration_s = _positive_finite(hold_duration_s, "hold_duration_s")
+
     control_mode = hand.config.control_mode
 
     def _restore_hand() -> None:
-        hand.set_max_current(hand.config.max_current)
-        hand.set_control_mode(control_mode)
-        hand.disable_torque()
+        failures = []
+        for label, restore in (
+            (
+                "current restore",
+                lambda: hand.set_max_current(
+                    hand.config.max_current, motor_ids=selected_motor_ids
+                ),
+            ),
+            (
+                "control-mode restore",
+                lambda: hand.set_control_mode(control_mode, motor_ids=selected_motor_ids),
+            ),
+            (
+                "torque disable",
+                lambda: _require_torque_ack(
+                    hand.disable_torque(selected_motor_ids),
+                    selected_motor_ids,
+                    "disable",
+                ),
+            ),
+        ):
+            try:
+                restore()
+            except Exception as error:
+                failures.append(f"{label} failed: {error}")
+        if failures:
+            raise RuntimeError("; ".join(failures))
 
-    hand.set_control_mode(CURRENT_BASED_POSITION)
     try:
+        hand.set_control_mode(CURRENT_BASED_POSITION, motor_ids=selected_motor_ids)
         if move_motors:
             _emit(progress_callback, "phase", phase="winding")
+            wrist_motor_id = hand.config.joint_to_motor_map.get("wrist")
             motors_to_move = [
-                motor_id
-                for joint, motor_id in hand.config.joint_to_motor_map.items()
-                if WRIST not in joint.lower() and motor_id in hand.config.motor_ids
+                motor_id for motor_id in selected_motor_ids if motor_id != wrist_motor_id
             ]
-            hand.set_max_current(hand.config.calibration_current)
+            if not motors_to_move:
+                raise ValueError("move_motors=True requires a selected non-wrist motor")
+            hand.set_max_current(winding_current, motor_ids=motors_to_move)
 
             increment_per_step = 0.1
             motor_increments_right = {
@@ -103,7 +158,6 @@ def run_tension(
             # taut) for stall_hold seconds, bounded by max_wind_s per direction.
             stall_threshold = 0.01
             stall_hold = 1.0
-            max_wind_s = 20.0
             moved_idx = np.array(
                 [hand.config.motor_ids.index(mid) for mid in motors_to_move]
             )
@@ -129,26 +183,47 @@ def run_tension(
                         stall_start = None
                     prev_pos = cur_pos
 
-        max_cur = hand.config.max_current
+        if should_stop():
+            _emit(progress_callback, "phase", phase="released")
+            _restore_hand()
+            return
+
         if move_motors:
             # Gradually release torque so tendons don't snap back, then
             # re-engage at the relaxed position for a stable hold.
             _emit(progress_callback, "phase", phase="ramp")
-            hand.set_max_current(max_cur)
-            hand.enable_torque()
+            hand.set_max_current(hold_current, motor_ids=selected_motor_ids)
+            _require_torque_ack(
+                hand.enable_torque(selected_motor_ids), selected_motor_ids, "enable"
+            )
             steps = 20
             for i in range(steps):
                 if should_stop():
                     break
-                hand.set_max_current(max_cur * (1 - (i + 1) / steps))
+                hand.set_max_current(
+                    hold_current * (1 - (i + 1) / steps),
+                    motor_ids=selected_motor_ids,
+                )
                 time.sleep(1.0 / steps)
-            hand.disable_torque()
+            _require_torque_ack(
+                hand.disable_torque(selected_motor_ids), selected_motor_ids, "disable"
+            )
             time.sleep(0.05)
-        hand.set_max_current(max_cur)
-        hand.enable_torque()
+            if should_stop():
+                _emit(progress_callback, "phase", phase="released")
+                _restore_hand()
+                return
+        hand.set_max_current(hold_current, motor_ids=selected_motor_ids)
+        _require_torque_ack(
+            hand.enable_torque(selected_motor_ids), selected_motor_ids, "enable"
+        )
         logger.info("holding motors for manual tendon tensioning")
         _emit(progress_callback, "phase", phase="holding")
-        while not should_stop():
+        hold_started = time.monotonic()
+        while not should_stop() and (
+            hold_duration_s is None
+            or time.monotonic() - hold_started < hold_duration_s
+        ):
             time.sleep(0.1)
     except BaseException:
         # Cleanup failures are reported, not raised, so the original error
@@ -162,6 +237,48 @@ def run_tension(
         raise
     _emit(progress_callback, "phase", phase="released")
     _restore_hand()
+
+
+def _validate_motor_selection(
+    hand: "OrcaHand", motor_ids: Optional[List[int]]
+) -> List[int]:
+    selected = list(hand.config.motor_ids if motor_ids is None else motor_ids)
+    if not selected:
+        raise ValueError("tension motor_ids must be nonempty")
+    if any(type(motor_id) is not int for motor_id in selected):
+        raise ValueError("tension motor_ids must contain integers")
+    if len(selected) != len(set(selected)):
+        raise ValueError("tension motor_ids must be unique")
+    if not set(selected).issubset(hand.config.motor_ids):
+        raise ValueError("tension motor_ids contain an unknown motor")
+    return selected
+
+
+def _positive_finite(value: float, label: str) -> float:
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not math.isfinite(value)
+        or value <= 0
+    ):
+        raise ValueError(f"{label} must be a positive finite number")
+    return float(value)
+
+
+def _require_torque_ack(failed_ids, selected_motor_ids: List[int], action: str) -> None:
+    if failed_ids is None:
+        return
+    if (
+        not isinstance(failed_ids, list)
+        or any(type(motor_id) is not int for motor_id in failed_ids)
+        or len(failed_ids) != len(set(failed_ids))
+        or not set(failed_ids).issubset(selected_motor_ids)
+    ):
+        raise RuntimeError(f"torque {action} acknowledgement is invalid")
+    if failed_ids:
+        raise RuntimeError(
+            f"torque {action} failed for motor IDs {sorted(failed_ids)}"
+        )
 
 
 def run_jitter(

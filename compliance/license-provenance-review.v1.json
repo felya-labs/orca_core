@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
   "subject": {
-    "purl": "pkg:pypi/felya-orca-core@0.4.1.post1.dev0",
+    "purl": "pkg:pypi/felya-orca-core@0.4.1.post2.dev0",
     "reviewedSourceCommit": "b721c6c290ee3a9727ddab18eef477f9896e572b",
-    "uvLockSha256": "d1b40d254af0db23ec1bb095871797e0bb8628f8b5b31f1f37f8419f04efcbbc",
-    "pyprojectSha256": "9d0dd40e84afdf701ddc3d8635c756c2e4961e85b5828d8ce3bcdfaf98d2d137"
+    "uvLockSha256": "9bb403a52df246623ceb60c447dbd720b8fbef08c36de1a44d04d26d13911484",
+    "pyprojectSha256": "77cbc9eb4f6eaaacd9eaa7b8acf3ebdc4e5f37b74fc143c9598ef93633dcd9d5"
   },
   "evidence": [
     {

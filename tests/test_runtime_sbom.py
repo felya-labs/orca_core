@@ -23,7 +23,7 @@ from tools.generate_runtime_sbom import (
 
 
 def uv_document() -> dict[str, Any]:
-    root_ref = "felya-orca-core-1@0.4.1.post3.dev0"
+    root_ref = "felya-orca-core-1@0.4.1.post4.dev0"
     dependency_ref = "pyserial-2@3.5"
     return {
         "bomFormat": "CycloneDX",

@@ -82,6 +82,14 @@ def _emit(progress_callback: Optional[ProgressCallback], event: str, **payload) 
         logger.exception("calibration progress callback failed")
 
 
+def _calibration_travel_cap(limits) -> Optional[float]:
+    """Bound one limit-seeking step from the last complete calibrated span."""
+    previous_span = abs(float(limits[1]) - float(limits[0]))
+    if previous_span < 0.05:
+        return None
+    return min(2.0, max(0.25, previous_span * 1.5 + 0.1))
+
+
 def run_calibration(
     hand: "OrcaHand",
     *,
@@ -93,6 +101,7 @@ def run_calibration(
     persist: bool = True,
     step_timeout_s: float | None = None,
     fail_on_step_error: bool = False,
+    enforce_previous_travel_limits: bool = False,
 ) -> CalibrationResult | None:
     """Run the calibration routine on ``hand`` and return the result.
 
@@ -136,6 +145,9 @@ def run_calibration(
             calibration or torque-release failure instead of skipping the
             affected joint. The default preserves the interactive recovery
             behavior; safety runtimes should enable this fail-closed mode.
+        enforce_previous_travel_limits: Abort a limit-seeking step when a motor
+            travels materially farther than its previous calibrated span.
+            Safety runtimes with a validated active calibration should enable it.
     """
     if step_timeout_s is not None and (
         isinstance(step_timeout_s, bool)
@@ -146,6 +158,8 @@ def run_calibration(
         raise ValueError("step_timeout_s must be a positive finite number")
     if not isinstance(fail_on_step_error, bool):
         raise ValueError("fail_on_step_error must be a boolean")
+    if not isinstance(enforce_previous_travel_limits, bool):
+        raise ValueError("enforce_previous_travel_limits must be a boolean")
     if should_stop is None:
         should_stop = lambda: False  # noqa: E731
 
@@ -162,6 +176,7 @@ def run_calibration(
             persist=persist,
             step_timeout_s=step_timeout_s,
             fail_on_step_error=fail_on_step_error,
+            enforce_previous_travel_limits=enforce_previous_travel_limits,
         )
     finally:
         if result is None:
@@ -288,6 +303,7 @@ def _drive_calibration(
     persist: bool,
     step_timeout_s: float | None,
     fail_on_step_error: bool,
+    enforce_previous_travel_limits: bool,
 ) -> CalibrationResult | None:
     """Execute the calibration routine and return a :class:`~orca_core.CalibrationResult`.
 
@@ -434,6 +450,21 @@ def _drive_calibration(
         )
 
         desired_increment, motor_reached_limit, directions = {}, {}, {}
+        step_origins: Dict[int, float] = {}
+        previous_travel_caps = (
+            {
+                motor_id: travel_cap
+                for motor_id, limits in motor_limits.items()
+                if motor_id in selected_motor_ids
+                and isinstance(limits, (list, tuple))
+                and len(limits) == 2
+                and all(value is not None for value in limits)
+                if (travel_cap := _calibration_travel_cap(limits)) is not None
+            }
+            if enforce_previous_travel_limits
+            else {}
+        )
+        last_sample_at = 0.0
         position_buffers, calibrated_joints, position_logs, current_log = (
             {},
             {},
@@ -522,6 +553,43 @@ def _drive_calibration(
             # stability buffers would fake a hardstop detection. Skip and retry.
             if not read_ok:
                 continue
+
+            now = time.monotonic()
+            sample_positions = {}
+            sample_currents = {}
+            for motor_id in desired_increment:
+                idx = hand.config.motor_id_to_idx_dict[motor_id]
+                position = float(curr_pos[idx])
+                current = float(curr_current[idx])
+                step_origins.setdefault(motor_id, position)
+                sample_positions[motor_id] = position
+                sample_currents[motor_id] = current
+                travel_cap = previous_travel_caps.get(motor_id)
+                if (
+                    travel_cap is not None
+                    and abs(position - step_origins[motor_id]) > travel_cap
+                ):
+                    _emit(
+                        progress_callback,
+                        "calibration_travel_exceeded",
+                        index=step_index,
+                        total=len(calibration_sequence),
+                        motor=motor_id,
+                        position=position,
+                        origin=step_origins[motor_id],
+                        maximum_travel=travel_cap,
+                    )
+                    return None
+            if now - last_sample_at >= 0.1:
+                _emit(
+                    progress_callback,
+                    "calibration_sample",
+                    index=step_index,
+                    total=len(calibration_sequence),
+                    positions=sample_positions,
+                    currents=sample_currents,
+                )
+                last_sample_at = now
 
             for motor_id in desired_increment.keys():
                 if not motor_reached_limit[motor_id]:

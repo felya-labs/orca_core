@@ -1,6 +1,7 @@
 """Failure-path tests for calibration routine internals: guarded motor reads,
 offset-calibration failures, and the atomic YAML persistence helper."""
 
+import dataclasses
 import os
 import shutil
 import threading
@@ -76,6 +77,38 @@ def test_read_motor_pos_checked_raises_on_persistent_stale_reads():
 # ---------------------------------------------------------------------------
 # calibrate_offset failure handling
 # ---------------------------------------------------------------------------
+
+
+def test_calibration_travel_cap_uses_previous_span_with_margin():
+    assert calibration_routine._calibration_travel_cap(
+        [-1.5, -0.8]
+    ) == pytest.approx(1.15)
+    assert calibration_routine._calibration_travel_cap(
+        [-1.0, -0.9]
+    ) == pytest.approx(0.25)
+    assert calibration_routine._calibration_travel_cap([0.0, 0.0]) is None
+
+
+def test_previous_travel_limit_aborts_and_reports_motor(connected_hand):
+    hand = connected_hand
+    selected = hand.config.joint_to_motor_map["index_mcp"]
+    limits = dict(hand.calibration.motor_limits_dict)
+    limits[selected] = [-0.05, 0.05]
+    hand.calibration = dataclasses.replace(hand.calibration, motor_limits_dict=limits)
+    events = []
+
+    result = calibration_routine.run_calibration(
+        hand,
+        joints=["index_mcp"],
+        progress_callback=events.append,
+        persist=False,
+        enforce_previous_travel_limits=True,
+    )
+
+    assert result is None
+    failure = next(e for e in events if e["event"] == "calibration_travel_exceeded")
+    assert failure["motor"] == selected
+    assert failure["maximum_travel"] == pytest.approx(0.25)
 
 
 def _force_offset_calibration(hand, monkeypatch, offset_stub):

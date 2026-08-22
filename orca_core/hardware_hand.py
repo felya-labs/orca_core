@@ -798,6 +798,7 @@ class OrcaHand(BaseHand):
         profile_acceleration: int | None = None,
         profile_torque: int | None = None,
         fail_on_step_error: bool = False,
+        enforce_previous_travel_limits: bool = False,
     ):
         """Run the joint calibration routine.
 
@@ -819,7 +820,8 @@ class OrcaHand(BaseHand):
                 ``encoder_anchor_recorded``, ``encoder_anchor_failed``,
                 ``offset_calibration_failed``, ``wrist_skipped``,
                 ``step_done``, ``calibration_done``, ``calibration_aborted``,
-                ``calibration_step_timed_out``, and ``cleanup_failed``. Called
+                ``calibration_step_timed_out``, ``calibration_travel_exceeded``,
+                ``calibration_sample``, and ``cleanup_failed``. Called
                 from the calibrating thread; must be fast and non-blocking.
                 Exceptions raised by the callback are swallowed.
             persist: Whether results are written to ``calibration.yaml``
@@ -840,6 +842,8 @@ class OrcaHand(BaseHand):
             fail_on_step_error: Abort and release the selected motors after an
                 offset-calibration or torque-release failure. Defaults to the
                 upstream-compatible behavior that skips the affected joint.
+            enforce_previous_travel_limits: Abort when a motor travels beyond
+                a bounded margin around its previous calibrated span.
         """
         profile = self._validate_position_write_profile(
             profile_speed, profile_acceleration, profile_torque
@@ -859,6 +863,7 @@ class OrcaHand(BaseHand):
                 step_timeout_s=step_timeout_s,
                 position_write_profile=profile,
                 fail_on_step_error=fail_on_step_error,
+                enforce_previous_travel_limits=enforce_previous_travel_limits,
             )
         else:
             self._start_task(
@@ -871,6 +876,7 @@ class OrcaHand(BaseHand):
                 step_timeout_s=step_timeout_s,
                 position_write_profile=profile,
                 fail_on_step_error=fail_on_step_error,
+                enforce_previous_travel_limits=enforce_previous_travel_limits,
             )
 
     def _calibrate_and_apply(self, **kwargs):

@@ -15,8 +15,8 @@ from pathlib import Path, PurePosixPath
 from zipfile import ZipFile
 
 EXPECTED_NAME = "felya-orca-core"
-EXPECTED_VERSION = "0.4.1.post4.dev0"
-EXPECTED_WHEEL_STEM = "felya_orca_core-0.4.1.post4.dev0"
+EXPECTED_VERSION = "0.4.1.post5.dev0"
+EXPECTED_WHEEL_STEM = "felya_orca_core-0.4.1.post5.dev0"
 EXPECTED_DIST_INFO = f"{EXPECTED_WHEEL_STEM}.dist-info"
 EXPECTED_GENERATOR = "hatchling 1.32.0"
 UPSTREAM_BASE_COMMIT = "c783006ee65432bd0155708cedc685d074448c65"
